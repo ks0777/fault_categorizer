@@ -22,24 +22,26 @@ def dfs(basic_blocks, current, discovered, postorder):
 
     discovered.append(current.start_address)
 
-    if OpCode.CBRANCH == current.instructions[-1].opcode:
+    last_op = current.instructions[max(current.instructions)][-1]
+
+    if OpCode.CBRANCH == last_op.opcode:
         successor = basic_blocks[current.end_address + 1]
         successor.predecessors.append(current)
         current.successors.append(successor)
         dfs(basic_blocks, successor, discovered, postorder)
 
-        branch_op = current.instructions[-1]
+        branch_op = last_op 
         successor = basic_blocks[branch_op.inputs[0].offset]
         successor.predecessors.append(current)
         current.successors.append(successor)
         dfs(basic_blocks, successor, discovered, postorder)
-    elif OpCode.BRANCH == current.instructions[-1].opcode:
-        branch_op = current.instructions[-1]
+    elif OpCode.BRANCH == last_op.opcode:
+        branch_op = last_op 
         successor = basic_blocks[branch_op.inputs[0].offset]
         successor.predecessors.append(current)
         current.successors.append(successor)
         dfs(basic_blocks, successor, discovered, postorder)
-    elif OpCode.RETURN == current.instructions[-1].opcode:
+    elif OpCode.RETURN == last_op.opcode:
         pass
     else:
         current.successors.append(basic_blocks[current.end_address + 1])
@@ -123,17 +125,38 @@ def find_basic_blocks(instructions, elf):
     basic_blocks[head.addr.offset] = bb
 
     for bb in basic_blocks.values():
+        bb.instructions = dict()
         for i in range(bb.start_address, bb.end_address):
-            bb.instructions += ops_dict.get(i, [])
+            if i in ops_dict:
+                bb.instructions[i] = ops_dict[i]
 
         #print(hex(bb.start_address), hex(bb.end_address), bb.instructions)
 
     return basic_blocks
 
+def affects_condition(bb, _ops, target_address):
+    last_op = bb.instructions[max(bb.instructions)][-1]
+    if last_op.opcode != OpCode.CBRANCH:
+        return False
+
+    condition_nodes = [last_op.inputs[1].offset]
+
+    for address, ops in sorted(bb.instructions.items())[::-1]:
+        for op in ops[::-1]:
+            if op.output is None:
+                continue
+
+            if op.output.offset in condition_nodes:
+                if address == target_address:
+                    return True
+
+                condition_nodes = list(filter(lambda offset: offset != op.output.offset, condition_nodes))
+                condition_nodes += [node.offset for node in op.inputs]
+
+    return False
+
 
 def check_li(ops, elf, target_address):
-    if not any(op.opcode == OpCode.CBRANCH for op in ops):
-        return False
 
     _, start_address, end_address = find_function_by_address(elf, target_address)
     #print('Function context', start_address, end_address)
@@ -163,7 +186,13 @@ def check_li(ops, elf, target_address):
             continue
 
         if target_address >= bb.start_address and target_address <= bb.end_address or target_address >= back_edge_head[0].start_address and target_address <= back_edge_head[0].end_address:
-            return True
+
+            if OpCode.CBRANCH == ops[-1].opcode:
+                return True
+
+            return affects_condition(bb if target_address >= bb.start_address and target_address <= bb.end_address else back_edge_head[0], ops, target_address)
+    
+
 
     #for bb in basic_blocks.values():
     #    print(hex(bb.start_address), hex(bb.end_address), bb.discovered_index, list(map(lambda bb: hex(bb.start_address), bb.successors)),list(map(lambda bb: hex(bb.start_address), bb.predecessors)))

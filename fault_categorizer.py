@@ -10,15 +10,20 @@ from enum import Enum
 
 from loop_integrity import check_li
 
-from util import extract_pcode_from_elf
+from util import extract_pcode_from_elf, find_function_by_address
 
 class FaultCategory(Enum):
     UNKNOWN = 0
     CFI = 1
     LI = 2
 
-def check_cfi(ops):
-    return any(op.opcode == OpCode.CALL for op in ops)
+def check_cfi(ops, elf, target_address):
+    if any(op.opcode == OpCode.CALL for op in ops):
+        return True
+
+    f = find_function_by_address(elf, target_address)
+
+    return any(op.opcode == OpCode.RETURN for op in ops) and f[2] == target_address
 
 def categorize_faults(args):
     faults = []
@@ -32,7 +37,7 @@ def categorize_faults(args):
 
         fault_category = FaultCategory.UNKNOWN
 
-        if check_cfi(ops):
+        if check_cfi(ops, elf, target_address):
             fault_category = FaultCategory.CFI
         elif check_li(ops, elf, target_address):
             fault_category = FaultCategory.LI
