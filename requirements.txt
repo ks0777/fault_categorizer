@@ -1,3 +1,4 @@
 pypcode @ git+https://github.com/angr/pypcode@master
-pyelftools==0.29
+angr==9.2.58
+angr_utils==0.5.0
 

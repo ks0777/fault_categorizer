@@ -1,4 +1,5 @@
 from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
+from pypcode import PcodePrettyPrinter
 
 from util import find_function_by_address, extract_disassembly_from_elf, extract_pcode_from_elf
 
@@ -44,7 +45,9 @@ def dfs(basic_blocks, current, discovered, postorder):
     elif OpCode.RETURN == last_op.opcode:
         pass
     else:
-        current.successors.append(basic_blocks[current.end_address + 1])
+        successor = basic_blocks[current.end_address + 1]
+        current.successors.append(successor)
+        successor.predecessors.append(current)
         dfs(basic_blocks, basic_blocks[current.end_address + 1], discovered, postorder)
 
     postorder.append(current.start_address)
@@ -78,14 +81,13 @@ def find_dominators(basic_blocks, entry_bb, postorder):
             new_idom = bb.predecessors[0].start_address
 
             for pred in bb.predecessors[1:]:
-                if pred.start_address not in idoms:
+                if pred.start_address in idoms:
                     new_idom = intersect(new_idom, pred.start_address, idoms, postorder_map)
 
             if idoms.get(bb.start_address, -1) != new_idom:
                 idoms[bb.start_address] = new_idom
                 changed = True
 
-    #print(idoms)
     return idoms
                 
 def dominates(a, b, entry, idoms):
@@ -105,10 +107,13 @@ def find_basic_blocks(instructions, elf):
     splits = set(())
     ops_dict = dict()
     basic_blocks = dict()
-
+    
     for i, instruction in enumerate(instructions):
         ops = extract_pcode_from_elf(elf, instruction.addr.offset, max_instructions=1)
         ops_dict[instruction.addr.offset] = ops
+        print(hex(instruction.addr.offset))
+        for op in ops:
+            print(PcodePrettyPrinter.fmt_op(op))
 
         if any(op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH for op in ops):
             branch_op = [op for op in ops if op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH][0]
@@ -134,32 +139,75 @@ def find_basic_blocks(instructions, elf):
 
     return basic_blocks
 
-def affects_condition(bb, _ops, target_address):
-    last_op = bb.instructions[max(bb.instructions)][-1]
-    if last_op.opcode != OpCode.CBRANCH:
+def affects_condition(bb, target_address, condition_nodes, discovered=[]):
+    print('affects condition ', hex(bb.start_address), condition_nodes)
+    if bb.start_address in discovered:
         return False
-
-    condition_nodes = [last_op.inputs[1].offset]
+    discovered.append(bb.start_address)
 
     for address, ops in sorted(bb.instructions.items())[::-1]:
         for op in ops[::-1]:
+            print(hex(address), op.opcode, op.output.offset if op.output else '', [node.offset for node in op.inputs])
+
+            if op.opcode == OpCode.STORE and f"{op.inputs[0].offset} {op.inputs[1].offset}" in condition_nodes:
+                if address == target_address:
+                    return True
+                condition_nodes += op.inputs[2].offset
+                continue
+
             if op.output is None:
                 continue
 
-            if op.output.offset in condition_nodes:
-                if address == target_address:
-                    return True
+            if address == target_address and op.output.offset in condition_nodes:
+                return True
 
+            if op.opcode == OpCode.LOAD and op.output.offset in condition_nodes:
+                condition_nodes.append(f"{op.inputs[0].offset} {op.inputs[1].offset}")
+
+            elif op.output.offset in condition_nodes:
                 condition_nodes = list(filter(lambda offset: offset != op.output.offset, condition_nodes))
                 condition_nodes += [node.offset for node in op.inputs]
+                print(condition_nodes)
+
+            if address == target_address:
+                return False
+
+    for pred in bb.predecessors:
+        print('target not found, searching in bb at ', hex(pred.start_address))
+        if affects_condition(pred, target_address, condition_nodes, discovered):
+            return True
 
     return False
 
+def find_loop_blocks(basic_blocks, current, head, discovered=set(())):
+    discovered.add(current)
+
+    if head.start_address == current.start_address:
+        return discovered
+
+    for pred in current.predecessors:
+        discovered = find_loop_blocks(basic_blocks, pred, head, discovered).union(discovered)
+         
+    return discovered
+
+def is_in_loop(loop_blocks, address):
+    for bb in loop_blocks:
+        if address >= bb.start_address and address <= bb.end_address:
+            return True
+
+    return False
 
 def check_li(ops, elf, target_address):
 
     _, start_address, end_address = find_function_by_address(elf, target_address)
     #print('Function context', start_address, end_address)
+
+    xd = extract_pcode_from_elf(elf, start_address, end_address)
+    for op in xd:
+        if op.opcode == OpCode.IMARK:
+            print(hex(op.inputs[0].offset))
+            continue
+        print(PcodePrettyPrinter.fmt_op(op))
 
     instruction_list = extract_disassembly_from_elf(elf, start_address, end_address)
     instructions = dict()
@@ -180,17 +228,33 @@ def check_li(ops, elf, target_address):
         if len(back_edge_head) != 1:
             continue
 
-        #print(f"Found back edge from {hex(bb.start_address)} to {hex(back_edge_head[0].start_address)}")
+        print(f"Found back edge from {hex(bb.start_address)} to {hex(back_edge_head[0].start_address)}")
 
         if not dominates(back_edge_head[0].start_address, bb.start_address, start_address, idoms):
             continue
 
-        if target_address >= bb.start_address and target_address <= bb.end_address or target_address >= back_edge_head[0].start_address and target_address <= back_edge_head[0].end_address:
+        loop_blocks = find_loop_blocks(basic_blocks, bb, back_edge_head[0])
 
-            if OpCode.CBRANCH == ops[-1].opcode:
-                return True
+        for loop_block in loop_blocks:
+            address, ops = sorted(loop_block.instructions.items())[-1]
+            last_op = ops[-1]
+            print(last_op.opcode, hex(last_op.inputs[0].offset))
 
-            return affects_condition(bb if target_address >= bb.start_address and target_address <= bb.end_address else back_edge_head[0], ops, target_address)
+            if (last_op.opcode == OpCode.BRANCH or last_op.opcode == OpCode.CBRANCH) and (not is_in_loop(loop_blocks, last_op.inputs[0].offset) or not is_in_loop(loop_blocks, loop_block.end_address + 1)):
+                if address == target_address:
+                    return True
+
+                print('Found unfaulted branch, checking if affected')
+
+                if last_op.opcode == OpCode.CBRANCH:
+                    condition_nodes = [last_op.inputs[1].offset]
+
+                    print(hex(loop_block.start_address), loop_block.predecessors)
+                    if affects_condition(loop_block, target_address, condition_nodes):
+                        return True
+
+
+        #return affects_condition(branching_bb, target_address, condition_nodes)
     
 
 

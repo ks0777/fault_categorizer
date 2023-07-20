@@ -49,27 +49,36 @@ def extract_disassembly_from_elf(elf, target_address, end_address=None, max_inst
     # Return the instructions
     return dx.instructions
 
-def find_function_by_address(elf, target_address):
-    # Iterate over the sections in the ELF file
-    for section in elf.iter_sections():
-        # Check if the section is a symbol table
-        if section.name == '.symtab':
-            symbol_table = section
-            break
-    else:
-        # If no symbol table is found, return None
-        return None
-    
-    # Iterate over the symbols in the symbol table
-    for symbol in symbol_table.iter_symbols():
-        # Check if the symbol is a function
-        if symbol['st_info']['type'] == 'STT_FUNC':
-            start_address = symbol['st_value']
-            end_address = start_address + symbol['st_size']
-            
-            # Check if the target address is within the function's scope
-            if start_address <= target_address < end_address:
-                return [symbol.name, start_address, end_address]
-    
-    # If no matching function is found, return None
-    return None
+def get_pcode(project, target_address, max_instructions=1):
+    mem = project.loader.memory
+
+    # Save offset to restore it later
+    offset = mem.tell()
+
+    # Set internal pointer to memory to be read
+    project.loader.memory.seek(target_address)
+    # Read the data at the specified offset (8 bytes should be enough for one instruction)
+    instruction_bytes = project.loader.memory.read(4*max_instructions)
+
+    # Reset internal pointer to previous value
+    mem.seek(offset)
+
+
+    # Translate instructions to pcode
+    ctx = Context('ARM:LE:32:Cortex')
+    tx = ctx.translate(instruction_bytes, base_address=target_address, max_instructions=max_instructions)
+    # Return the pcode
+    return tx.ops
+
+def addr_in_range(addr, start, end):
+    return addr >= start and addr < end
+
+def addr_in_node(addr, node):
+    return addr >= node.addr and addr < (node.addr + node.size)
+
+def find_function_by_address(cfg, target_address):
+    for function in cfg.functions.values():
+        if addr_in_range(target_address, function.addr, function.addr + function.size):
+            return [function.addr, function.addr + function.size]
+    raise Exception(f'Unable to find function bounds for address {target_address}')
+
