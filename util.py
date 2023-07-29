@@ -73,3 +73,16 @@ def find_function_by_address(elf, target_address):
     
     # If no matching function is found, return None
     return None
+
+
+def debug_console(_locals):
+    import code
+    import readline
+    import rlcompleter
+               
+    vars = globals()
+    vars.update(_locals)
+                                                  
+    readline.set_completer(rlcompleter.Completer(vars).complete)
+    readline.parse_and_bind("tab: complete")
+    code.InteractiveConsole(vars).interact()

@@ -1,6 +1,6 @@
 from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
 
-from util import find_function_by_address, extract_disassembly_from_elf, extract_pcode_from_elf
+from util import find_function_by_address, extract_disassembly_from_elf, extract_pcode_from_elf, debug_console
 
 class BasicBlock:
     def __init__(self, start_address, end_address, instructions):
@@ -44,7 +44,9 @@ def dfs(basic_blocks, current, discovered, postorder):
     elif OpCode.RETURN == last_op.opcode:
         pass
     else:
-        current.successors.append(basic_blocks[current.end_address + 1])
+        successor = basic_blocks[current.end_address + 1]
+        current.successors.append(successor)
+        successor.predecessors.append(current)
         dfs(basic_blocks, basic_blocks[current.end_address + 1], discovered, postorder)
 
     postorder.append(current.start_address)
@@ -78,14 +80,13 @@ def find_dominators(basic_blocks, entry_bb, postorder):
             new_idom = bb.predecessors[0].start_address
 
             for pred in bb.predecessors[1:]:
-                if pred.start_address not in idoms:
+                if pred.start_address in idoms:
                     new_idom = intersect(new_idom, pred.start_address, idoms, postorder_map)
 
             if idoms.get(bb.start_address, -1) != new_idom:
                 idoms[bb.start_address] = new_idom
                 changed = True
 
-    #print(idoms)
     return idoms
                 
 def dominates(a, b, entry, idoms):
@@ -101,72 +102,114 @@ def dominates(a, b, entry, idoms):
 
     return False
 
-def find_basic_blocks(instructions, elf):
-    splits = set(())
-    ops_dict = dict()
+def find_basic_blocks(ops, start_address, end_address):
     basic_blocks = dict()
+    splits = set(())
 
-    for i, instruction in enumerate(instructions):
-        ops = extract_pcode_from_elf(elf, instruction.addr.offset, max_instructions=1)
-        ops_dict[instruction.addr.offset] = ops
+    current_insn_addr = 0
+    split_next_insn = False
+    insn_ops = dict()
+    for op in ops:
+        if op.opcode == OpCode.IMARK:
+            current_insn_addr = op.inputs[0].offset
+            insn_ops[current_insn_addr] = []
+            if split_next_insn:
+                split_next_insn = False
+                splits.add(current_insn_addr)
+            continue
 
-        if any(op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH for op in ops):
-            branch_op = [op for op in ops if op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH][0]
-            splits.add(list(filter(lambda instr: instr.addr.offset == branch_op.inputs[0].offset, instructions))[0])
-            splits.add(instructions[i+1])
+        insn_ops[current_insn_addr].append(op)
 
-    head = instructions[0]
-    for i in sorted(splits, key = lambda instr: instr.addr.offset):
-        bb = BasicBlock(head.addr.offset, i.addr.offset-1, [])
-        basic_blocks[bb.start_address] = bb
-        head = i
+        if op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH:
+            splits.add(op.inputs[0].offset)
+            split_next_insn = True
 
-    bb = BasicBlock(head.addr.offset, instructions[-1].addr.offset + instructions[-1].length - 1, [])
-    basic_blocks[head.addr.offset] = bb
+    head = start_address
+    for split_addr in sorted(splits):
+        bb = BasicBlock(head, split_addr - 1, dict())
+        basic_blocks[head] = bb
+        head = split_addr
+
+    bb = BasicBlock(head, end_address, dict())
+    basic_blocks[head] = bb
 
     for bb in basic_blocks.values():
-        bb.instructions = dict()
-        for i in range(bb.start_address, bb.end_address):
-            if i in ops_dict:
-                bb.instructions[i] = ops_dict[i]
-
-        #print(hex(bb.start_address), hex(bb.end_address), bb.instructions)
+        for addr in range(bb.start_address, bb.end_address):
+            if addr in insn_ops:
+                bb.instructions[addr] = insn_ops[addr]
 
     return basic_blocks
 
-def affects_condition(bb, _ops, target_address):
-    last_op = bb.instructions[max(bb.instructions)][-1]
-    if last_op.opcode != OpCode.CBRANCH:
+def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[]):
+    print('affects condition ', hex(bb.start_address), condition_nodes)
+    if bb.start_address in discovered:
         return False
+    discovered.append(bb.start_address)
 
-    condition_nodes = [last_op.inputs[1].offset]
-
-    for address, ops in sorted(bb.instructions.items())[::-1]:
+    for insn_address, ops in sorted(bb.instructions.items())[::-1]:
         for op in ops[::-1]:
+            #print(hex(insn_address), op.opcode, op.output.offset if op.output else '', [node.offset for node in op.inputs])
+
+            writes = meminfo[(meminfo['insaddr'] == insn_address) & (meminfo['direction'] == 1)]['address']
+            for mem_addr in writes:
+                if op.opcode == OpCode.STORE and mem_addr in condition_nodes:
+                    if insn_address == target_address:
+                        return True
+                    if op.inputs[2].space.name != 'const':
+                        condition_nodes.append(op.inputs[2].offset)
+
             if op.output is None:
                 continue
 
-            if op.output.offset in condition_nodes:
-                if address == target_address:
-                    return True
+            if insn_address == target_address and op.output.offset in condition_nodes:
+                return True
 
+            if op.opcode == OpCode.LOAD and op.output.offset in condition_nodes:
+                reads = meminfo[(meminfo['insaddr'] == insn_address) & (meminfo['direction'] == 0)]['address']
+                for mem_addr in reads:
+                    condition_nodes.append(mem_addr)
+
+            elif op.output.offset in condition_nodes:
+                # Todo: This step should only happen if the current instruction strongly dominates the instruction that previously wrote to the varnode
                 condition_nodes = list(filter(lambda offset: offset != op.output.offset, condition_nodes))
-                condition_nodes += [node.offset for node in op.inputs]
+                condition_nodes += [node.offset for node in filter(lambda node: node.space.name != 'const', op.inputs)]
+                #print(condition_nodes)
+
+            if insn_address == target_address:
+                return False
+
+    for pred in bb.predecessors:
+        print('target not found, searching in bb at ', hex(pred.start_address))
+        if affects_condition(pred, target_address, condition_nodes, meminfo, discovered):
+            return True
 
     return False
 
+def find_loop_blocks(basic_blocks, current, head, discovered=set(())):
+    if current in discovered:
+        return set(())
+    discovered.add(current)
 
-def check_li(ops, elf, target_address):
+    if head.start_address == current.start_address:
+        return discovered
 
+    for pred in current.predecessors:
+        discovered = find_loop_blocks(basic_blocks, pred, head, discovered).union(discovered)
+         
+    return discovered
+
+def is_in_loop(loop_blocks, address):
+    for bb in loop_blocks:
+        if address >= bb.start_address and address <= bb.end_address:
+            return True
+
+    return False
+
+def check_li(ops, elf, meminfo, target_address):
     _, start_address, end_address = find_function_by_address(elf, target_address)
-    #print('Function context', start_address, end_address)
 
-    instruction_list = extract_disassembly_from_elf(elf, start_address, end_address)
-    instructions = dict()
-    for instruction in instruction_list:
-        instructions[instruction.addr.offset] = instruction
-
-    basic_blocks = find_basic_blocks(instruction_list, elf)
+    function_ops = extract_pcode_from_elf(elf, start_address, end_address=end_address)
+    basic_blocks = find_basic_blocks(function_ops, start_address, end_address)
 
     postorder = []
     dfs(basic_blocks, basic_blocks[start_address], [], postorder) 
@@ -185,20 +228,24 @@ def check_li(ops, elf, target_address):
         if not dominates(back_edge_head[0].start_address, bb.start_address, start_address, idoms):
             continue
 
-        if target_address >= bb.start_address and target_address <= bb.end_address or target_address >= back_edge_head[0].start_address and target_address <= back_edge_head[0].end_address:
+        loop_blocks = find_loop_blocks(basic_blocks, bb, back_edge_head[0])
 
-            if OpCode.CBRANCH == ops[-1].opcode:
-                return True
+        for loop_block in loop_blocks:
+            address, ops = sorted(loop_block.instructions.items())[-1]
+            last_op = ops[-1]
+            #print(last_op.opcode, hex(last_op.inputs[0].offset))
 
-            return affects_condition(bb if target_address >= bb.start_address and target_address <= bb.end_address else back_edge_head[0], ops, target_address)
-    
+            if (last_op.opcode == OpCode.BRANCH or last_op.opcode == OpCode.CBRANCH) and (not is_in_loop(loop_blocks, last_op.inputs[0].offset) or not is_in_loop(loop_blocks, loop_block.end_address + 1)):
+                if address == target_address:
+                    return True
 
+                #print('Found unfaulted branch, checking if affected')
 
-    #for bb in basic_blocks.values():
-    #    print(hex(bb.start_address), hex(bb.end_address), bb.discovered_index, list(map(lambda bb: hex(bb.start_address), bb.successors)),list(map(lambda bb: hex(bb.start_address), bb.predecessors)))
+                if last_op.opcode == OpCode.CBRANCH:
+                    condition_nodes = [last_op.inputs[1].offset]
 
-    #print(list(map(lambda addr: hex(addr), postorder)))
-
-    #print(dominates(0x80000028, 0x80000038, instructions[0].addr.offset, idoms))
+                    print(hex(loop_block.start_address), loop_block.predecessors)
+                    if affects_condition(loop_block, target_address, condition_nodes, meminfo):
+                        return True
 
     return False
