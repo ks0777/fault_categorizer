@@ -9,6 +9,8 @@ from angr.knowledge_plugins.key_definitions.constants import OP_BEFORE, OP_AFTER
 import pyvex
 from angrutils import *
 import archinfo
+import networkx as nx
+import matplotlib.pyplot as plt
 
 from util import extract_pcode_from_elf, find_function_by_address, addr_in_range, addr_in_node, get_pcode
 
@@ -26,7 +28,6 @@ def check_cfi(ops, cfg, target_address):
 
     return any(op.opcode == OpCode.RETURN for op in ops) and function_scope[1] == target_address
 
-"""
 # Searches for all instructions that the given instructions depends on. Will ignore paths that end in a GET of a register specified in ignore_regs (Needed for itstate, and dep registers)
 def search_deps(project, dependencies, function_scope, depends_on, visited_locs=[], ignore_regs=[]):
     #print(dependencies)
@@ -52,9 +53,77 @@ def search_deps(project, dependencies, function_scope, depends_on, visited_locs=
 
     print('returning', real_dep)
     return real_dep
-"""
 
-def search_deps(project, cfg, target_address):
+def search_deps2(project, view_item, function_scope, deps, visited_locs=[], ignore_regs=[]):
+    stmt = project.factory.block(view_item._variable.location.block_addr).vex.statements[view_item._variable.location.stmt_idx]
+    if (stmt.tag == 'Ist_WrTmp' and stmt.data.tag == 'Iex_Get' and stmt.data.offset in ignore_regs):
+        print('ignored reg')
+        return False
+
+    locs_str = str(view_item._variable.location)
+    if locs_str in visited_locs:
+        return False
+
+    visited_locs.append(locs_str)
+
+    dependencies = view_item.depends_on
+
+    if stmt.tag == 'Ist_WrTmp' and stmt.data.tag == 'Iex_ITE':
+        cond = next(filter(lambda dep: dep._variable.variable.tmp_id == stmt.data.cond.tmp, dependencies))
+        if not search_deps2(project, cond, function_scope, deps, visited_locs=visited_locs, ignore_regs=ignore_regs):
+            stmt.pp()
+            print('ignoring dep because condition depends on ignored')
+            if isinstance(stmt.data.iftrue, pyvex.expr.Const):
+                return True
+            iftrue = next(filter(lambda dep: dep._variable.variable.tmp_id == stmt.data.iftrue.tmp, dependencies))
+            return search_deps2(project, iftrue, function_scope, deps, visited_locs=visited_locs, ignore_regs=ignore_regs)
+
+    if len(dependencies) == 0:
+        deps.add(view_item._variable.location.ins_addr)
+        return True
+
+    real_dep = False
+
+    for dep in dependencies:
+        addr = dep._variable.location.ins_addr
+        if not addr_in_range(addr, function_scope[0], function_scope[1]):
+            print('out of scope')
+            real_dep = True
+            continue
+
+        real_dep |= search_deps2(project, dep, function_scope, deps, visited_locs=visited_locs, ignore_regs=ignore_regs)
+
+    if real_dep:
+        stmt.pp()
+        print('is real dependency')
+        deps.add(view_item._variable.location.ins_addr)
+        
+    return real_dep
+
+def build_graph(project, view_item, function_scope, G, parent_node=None):
+    stmt = project.factory.block(view_item._variable.location.block_addr).vex.statements[view_item._variable.location.stmt_idx]
+    locs_str = str(view_item._variable.location)
+    if locs_str in G.nodes:
+        G.add_edge(parent_node, locs_str)
+        return False
+
+    G.add_node(locs_str)
+    if parent_node != None:
+        G.add_edge(parent_node, locs_str)
+
+    for dep in view_item.depends_on:
+        addr = dep._variable.location.ins_addr
+        if not addr_in_range(addr, function_scope[0], function_scope[1]):
+            continue
+
+        build_graph(project, dep, function_scope, G, locs_str)
+
+def plot_graph(G):
+    nx.draw_networkx(G)
+    plt.show()
+
+
+def search_deps3(project, cfg, target_address):
     function_scope = find_function_by_address(cfg, target_address)
 
     function = cfg.kb.functions[function_scope[0]]
@@ -65,11 +134,18 @@ def search_deps(project, cfg, target_address):
     for tmp in idk.tmps.values():
         for _def in tmp:
             deps.add(_def.codeloc.ins_addr)
+            #for __def in _def:
 
-    return deps
+    for dep in deps:
+        print(hex(dep))
 
+    print(len(deps))
+    return list(deps)
 
-def check_li(ops, project, cfg, target_address):
+    """
+    """
+
+def check_li(ops, project, cfg, ddg, target_address, ignore_regs):
     function_scope = find_function_by_address(cfg, target_address)
 
     function = cfg.kb.functions[function_scope[0]]
@@ -81,10 +157,12 @@ def check_li(ops, project, cfg, target_address):
             return True
 
         loop_branch_addrs = set(())
+        loop_branch_addrs.add(0x8000059)
 
         for edge in loop.break_edges + loop.continue_edges:
             head, tail = edge
             cfg_node = cfg._nodes_by_addr[head.addr][0]
+            print(hex(cfg_node.addr))
             vex_block = project.factory.block(
                 cfg_node.addr, size=cfg_node.size
             ).vex
@@ -95,14 +173,31 @@ def check_li(ops, project, cfg, target_address):
                 print('Non exit statement found at end of break/continue node, should there be one?')
 
         for addr in loop_branch_addrs: 
-            depends_on = search_deps(project, cfg, addr)
+            print('huh?', hex(addr))
+            """
+            depends_on = search_deps3(project, cfg, addr)
+            """
+            view_instr = ddg.view[addr]
 
-            if target_address in depends_on or (isinstance(project.arch, archinfo.ArchARM) and target_address + 1 in depends_on):
+            #depends_on = set(())
+            #search_deps(project, view_instr.definitions, function_scope, depends_on, ignore_regs=ignore_regs)
+            #depends_on = search_deps3(project, cfg, addr)
+            #print(hex(addr), [f"{hex(x)}" for x in iter(depends_on)])
+            deps = set(())
+
+            for v in view_instr.definitions:
+                search_deps2(project, v, function_scope, deps, visited_locs=[], ignore_regs=ignore_regs)
+
+            for x in deps:
+                print(hex(x))
+
+            if target_address in deps or (isinstance(project.arch, archinfo.ArchARM) and target_address + 1 in deps):
                 return True
 
     return False
 
-def check_cond(project, cfg, target_address):
+def check_cond(project, cfg, ddg, target_address, ignore_regs):
+    return False
     function_scope = find_function_by_address(cfg, target_address)
     function = cfg.kb.functions[function_scope[0]]
 
@@ -111,14 +206,17 @@ def check_cond(project, cfg, target_address):
         if not isinstance(stmt, pyvex.IRStmt.Exit):
             continue
 
-        branch_addr = block.instruction_addrs[-1]
-
-        if branch_addr == target_address:
+        if block.instruction_addrs[-1] == target_address:
             return True
 
-        depends_on = search_deps(project, cfg, branch_addr)
+        view_instr = ddg.view[block.instruction_addrs[-1]]
 
-        if target_address in depends_on or (isinstance(project.arch, archinfo.ArchARM) and target_address + 1 in depends_on):
+        depends_on = set(())
+        search_deps(project, view_instr.definitions, function_scope, depends_on, [], ignore_regs=ignore_regs)
+        print(hex(block.instruction_addrs[-1]), [f"{hex(x)}" for x in iter(depends_on)])
+
+        if target_address in depends_on or (isinstance(project.arch, archinfo.ArchARM) and target_address - 1 in depends_on):
+            continue
             return True
 
     return False
@@ -128,7 +226,37 @@ def categorize_faults(args):
     faults = []
 
     project = angr.Project(args.filename, load_options={'auto_load_libs': False})
-    cfg = project.analyses.CFG()
+    cfg_emulated = project.analyses.CFGEmulated(keep_state=True, state_add_options=angr.options.refs, iropt_level=0)
+    #cfg = project.analyses.CFG()
+    #plot_cfg(cfg_emulated, "aaaaah", asminst=True, remove_imports=True, remove_path_terminator=True)
+    ddg = project.analyses.DDG(cfg_emulated)
+    print(len(ddg.graph.edges), len(ddg.graph.nodes))
+    #ddg = ddg.simplified_data_graph
+    #plot_ddg_stmt(ddg.graph, "ahhhh_ddg_stmt", project=project)
+
+    _regs = project.arch.registers
+    ignore_regs = [_regs['itstate'][0]]
+
+    project.factory.block(0x8000061).vex.pp()
+    deps=set(())
+    view_items = ddg.view[0x800007b].definitions
+    print([v._variable.location.stmt_idx for v in view_items])
+    for x in view_items:
+        if x._variable.location.stmt_idx == 503:
+            view_item = x
+    function_scope = find_function_by_address(cfg_emulated, 0x8000059)
+    search_deps2(project, view_item, function_scope, deps, ignore_regs=ignore_regs)
+    import code
+    import readline
+    import rlcompleter
+               
+    vars = globals()
+    vars.update(locals())
+                                                  
+    readline.set_completer(rlcompleter.Completer(vars).complete)
+    readline.parse_and_bind("tab: complete")
+    code.InteractiveConsole(vars).interact()
+
 
     for target_address in args.address:
         target_address = int(target_address, 0)
@@ -136,11 +264,11 @@ def categorize_faults(args):
 
         fault_category = FaultCategory.UNKNOWN
 
-        if check_cfi(ops, cfg, target_address):
+        if check_cfi(ops, cfg_emulated, target_address):
             fault_category = FaultCategory.CFI
-        elif check_li(ops, project, cfg, target_address):
+        elif check_li(ops, project, cfg_emulated, ddg, target_address, ignore_regs):
             fault_category = FaultCategory.LI
-        elif check_cond(project, cfg, target_address):
+        elif check_cond(project, cfg_emulated, ddg, target_address, ignore_regs):
             fault_category = FaultCategory.ITE
 
         faults.append([target_address, fault_category])
