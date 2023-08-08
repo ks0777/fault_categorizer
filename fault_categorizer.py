@@ -13,7 +13,11 @@ import util
 
 import pandas
 
-def check_cfi(ops, elf, target_address):
+from call_graph_analysis import CallGraphAnalysis
+from data_dependency_analysis import DataDependencyAnalysis
+
+def check_cfi(instructions, elf, target_address):
+    ops = instructions[target_address]
     if any(op.opcode == OpCode.CALL for op in ops):
         return True
 
@@ -27,30 +31,34 @@ def categorize_faults(args):
     f_bin = open(args.filename, 'rb')
     elf = ELFFile(f_bin)
     meminfo = pandas.read_hdf(args.hdf, '/Goldenrun/meminfo')
+    tbexeclist = pandas.read_hdf(args.hdf, '/Goldenrun/tbexeclist')
+    tbinfo = pandas.read_hdf(args.hdf, '/Goldenrun/tbinfo')
+
+    instructions = util.load_instructions(elf)
+    ddg = DataDependencyAnalysis(instructions, tbexeclist, tbinfo, meminfo)
 
     for target_address in args.address:
-        target_address = int(target_address, 16)
-        ops = util.extract_pcode_from_elf(elf, target_address, max_instructions=1)
+        target_address = int(target_address, 0)
 
         fault_category = util.FaultCategory.UNKNOWN
 
-        if check_cfi(ops, elf, target_address):
+        if check_cfi(instructions, elf, target_address):
             fault_category = util.FaultCategory.CFI
+            faults.append([target_address, fault_category])
             continue
 
-        _, start_address, end_address = util.find_function_by_address(elf, target_address)
-        function_ops = util.extract_pcode_from_elf(elf, start_address, end_address=end_address)
-        basic_blocks = util.find_basic_blocks(function_ops, start_address, end_address)
+        function = util.find_function_by_address(elf, target_address)
+        function_ops = util.extract_pcode_from_elf(elf, function.start_address, end_address=function.end_address)
+        basic_blocks = util.find_basic_blocks(function_ops, function.start_address, function.end_address)
 
         postorder = []
-        util.build_cfg(basic_blocks, basic_blocks[start_address], [], postorder) 
+        util.build_cfg(basic_blocks, basic_blocks[function.start_address], [], postorder) 
 
-        idoms = util.find_dominators(basic_blocks, basic_blocks[start_address], postorder)
+        idoms = util.find_dominators(basic_blocks, basic_blocks[function.start_address], postorder)
 
-        #if (cat := check_li(ops, elf, meminfo, target_address)) != None:
-        if (cat := check_li(ops, basic_blocks, meminfo, idoms, start_address, target_address)) != None:
+        if (cat := check_li(basic_blocks, ddg, idoms, function.start_address, target_address)) != None:
             fault_category = cat
-        elif (cat := check_ite(basic_blocks, meminfo, idoms, start_address, target_address)) != None:
+        elif (cat := check_ite(instructions, ddg, target_address)) != None:
             fault_category = cat
 
         faults.append([target_address, fault_category])

@@ -21,7 +21,7 @@ def is_in_loop(loop_blocks, address):
 
     return False
 
-def check_li(ops, basic_blocks, meminfo, idoms, start_address, target_address):
+def check_li(basic_blocks, ddg, idoms, start_address, target_address):
 
     for bb in basic_blocks.values():
         back_edge_head = [successor for successor in bb.successors if bb.discovered_index >= successor.discovered_index]
@@ -46,10 +46,8 @@ def check_li(ops, basic_blocks, meminfo, idoms, start_address, target_address):
                 print('Found unfaulted branch, checking if affected')
 
                 if last_op.opcode == OpCode.CBRANCH:
-                    condition_nodes = [last_op.inputs[1].offset]
-
-                    print(hex(loop_block.start_address), loop_block.predecessors)
-                    if util.affects_condition(loop_block, target_address, condition_nodes, meminfo, []):
+                    dependencies = ddg.find_dependencies(address)
+                    if target_address in map(lambda node: node.insn_addr, dependencies):
                         return util.FaultCategory.LI
 
     return None

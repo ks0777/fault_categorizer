@@ -49,6 +49,40 @@ def extract_pcode_from_elf(elf, target_address, end_address=None, max_instructio
     # Return the pcode
     return tx.ops
 
+def load_instructions(elf):
+    instructions = dict()
+    data = None
+    for segment in elf.iter_segments():
+        if segment.header.p_type == 'PT_LOAD':
+            data = segment.data()
+            base_address = segment.header.p_vaddr
+            break
+
+    if data == None:
+        print('[ERROR]: Unable to find loadable segment in binary')
+        return
+
+    # Translate instructions to pcode
+    ctx = Context('RISCV:LE:64:default')
+    tx = ctx.translate(data, base_address=base_address)
+
+    current_insn_addr = None
+    for op in tx.ops:
+        if op.opcode == OpCode.IMARK:
+            current_insn_addr = op.inputs[0].offset
+            instructions[current_insn_addr] = []
+            continue
+
+        instructions[current_insn_addr].append(op)
+
+    return instructions
+
+class Function:
+    def __init__(self, symbol, start_address, end_address):
+        self.symbol = symbol
+        self.start_address = start_address
+        self.end_address = end_address
+
 def find_function_by_address(elf, target_address):
     # Iterate over the sections in the ELF file
     for section in elf.iter_sections():
@@ -69,7 +103,7 @@ def find_function_by_address(elf, target_address):
             
             # Check if the target address is within the function's scope
             if start_address <= target_address < end_address:
-                return [symbol.name, start_address, end_address]
+                return Function(symbol.name, start_address, end_address)
     
     # If no matching function is found, return None
     return None
