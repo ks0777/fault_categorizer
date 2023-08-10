@@ -22,13 +22,12 @@ def is_in_loop(loop_blocks, address):
     return False
 
 def check_li(basic_blocks, ddg, idoms, start_address, target_address):
-
     for bb in basic_blocks.values():
         back_edge_head = [successor for successor in bb.successors if bb.discovered_index >= successor.discovered_index]
         if len(back_edge_head) != 1:
             continue
 
-        print(f"Found back edge from {hex(bb.start_address)} to {hex(back_edge_head[0].start_address)}")
+        #print(f"Found back edge from {hex(bb.start_address)} to {hex(back_edge_head[0].start_address)}")
 
         if not util.dominates(back_edge_head[0].start_address, bb.start_address, start_address, idoms):
             continue
@@ -41,13 +40,13 @@ def check_li(basic_blocks, ddg, idoms, start_address, target_address):
 
             if (last_op.opcode == OpCode.BRANCH or last_op.opcode == OpCode.CBRANCH) and (not is_in_loop(loop_blocks, last_op.inputs[0].offset) or not is_in_loop(loop_blocks, loop_block.end_address + 1)):
                 if address == target_address:
-                    return util.FaultCategory.LI
+                    return util.FaultReport(target_address, util.FaultCategory.LI_1)
 
-                print('Found unfaulted branch, checking if affected')
+                #print('Found unfaulted branch, checking if affected')
 
                 if last_op.opcode == OpCode.CBRANCH:
                     dependencies = ddg.find_dependencies(address)
                     if target_address in map(lambda node: node.insn_addr, dependencies):
-                        return util.FaultCategory.LI
+                        return util.FaultReport(target_address, util.FaultCategory.LI_2, node.insn_addr)
 
     return None

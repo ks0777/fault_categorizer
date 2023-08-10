@@ -15,6 +15,7 @@ import pandas
 
 from call_graph_analysis import CallGraphAnalysis
 from data_dependency_analysis import DataDependencyAnalysis
+from countermeasures import get_countermeasure
 
 def check_cfi(instructions, elf, target_address):
     ops = instructions[target_address]
@@ -26,7 +27,7 @@ def check_cfi(instructions, elf, target_address):
     return any(op.opcode == OpCode.RETURN for op in ops)
 
 def categorize_faults(args):
-    faults = []
+    fault_reports = []
 
     f_bin = open(args.filename, 'rb')
     elf = ELFFile(f_bin)
@@ -40,32 +41,56 @@ def categorize_faults(args):
     for target_address in args.address:
         target_address = int(target_address, 0)
 
-        fault_category = util.FaultCategory.UNKNOWN
+        fault_report = util.FaultReport(target_address, util.FaultCategory.UNKNOWN)
 
         if check_cfi(instructions, elf, target_address):
-            fault_category = util.FaultCategory.CFI
-            faults.append([target_address, fault_category])
+            fault_report = util.FaultReport(target_address, util.FaultCategory.CFI)
+            fault_reports.append(fault_report)
             continue
 
         function = util.find_function_by_address(elf, target_address)
-        function_ops = util.extract_pcode_from_elf(elf, function.start_address, end_address=function.end_address)
-        basic_blocks = util.find_basic_blocks(function_ops, function.start_address, function.end_address)
+        basic_blocks = util.find_basic_blocks(instructions, function.start_address, function.end_address)
 
         postorder = []
         util.build_cfg(basic_blocks, basic_blocks[function.start_address], [], postorder) 
 
         idoms = util.find_dominators(basic_blocks, basic_blocks[function.start_address], postorder)
 
-        if (cat := check_li(basic_blocks, ddg, idoms, function.start_address, target_address)) != None:
-            fault_category = cat
-        elif (cat := check_ite(instructions, ddg, target_address)) != None:
-            fault_category = cat
+        if (report := check_li(basic_blocks, ddg, idoms, function.start_address, target_address)) != None:
+            fault_report = report
+        elif (report := check_ite(basic_blocks, instructions, function, ddg, postorder, target_address)) != None:
+            fault_report = report
 
-        faults.append([target_address, fault_category])
+        fault_reports.append(fault_report)
+
+    for report in fault_reports:
+        source_line = util.decode_file_line(elf.get_dwarf_info(), report.fault_address)
+        print(f"Skipped instruction at {hex(report.fault_address)} ({source_line[0].decode()}:{source_line[1]}) caused fault of type {report.category}")
+        if report.affected_branch:
+            source_line = util.decode_file_line(elf.get_dwarf_info(), report.affected_branch)
+            print(f"\tFault affected branch at {hex(report.affected_branch)} ({source_line[0].decode()}:{source_line[1]})")
+        if report.category == util.FaultCategory.UNKNOWN:
+            print(f"\tUnable to detect how the skipped instruction influences the control flow. The instruction affects the following instructions: ")
+            dependents = ddg.find_dependents(report.fault_address)
+            affects_store_op = False
+            for dep in dependents:
+                print(f"\t\t{str(dep)}")
+                for op in instructions[dep.insn_addr]:
+                    if op.opcode == OpCode.STORE:
+                        affects_store_op = True
+                        break
+
+            if affects_store_op:
+                print('\tThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data.')
+
+        if args.countermeasures:
+            get_countermeasure(report)
+
+    #util.debug_console(locals())
 
     f_bin.close()
 
-    return faults
+    return fault_reports
 
 def main():
     parser = argparse.ArgumentParser(
@@ -82,13 +107,14 @@ def main():
         nargs='+',
         required=True
     )
+    parser.add_argument('-c', '--countermeasures',
+        help='Suggest software-based countermeasures against discovered faults',
+        action='store_true'
+    )
 
     args = parser.parse_args()
 
     faults = categorize_faults(args)
-
-    for [address, category] in faults:
-        print(f"Fault at {hex(address)} is of type {category}")
 
 
 if __name__ == '__main__':

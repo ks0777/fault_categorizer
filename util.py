@@ -1,81 +1,83 @@
 from pypcode import Context
-from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
+from pypcode.pypcode_native import OpCode, BadDataError
 
 from enum import Enum
+
+class FaultReport():
+    def __init__(self, fault_address, category, affected_branch=None):
+        self.fault_address = fault_address
+        self.category = category
+        self.affected_branch = affected_branch
+
+    def __str__(self):
+        return str(self.category) + (f' affected branch at {hex(self.affected_branch)}' if self.affected_branch else '')
 
 class FaultCategory(Enum):
     UNKNOWN = 0
     CFI = 1
-    LI = 2
-    ITE_1 = 3
-    ITE_2 = 4
-    ITE_3 = 5
+    LI_1 = 2
+    LI_2 = 3
+    ITE_1 = 4
+    ITE_2 = 5
+    ITE_3 = 6
 
-def extract_assembly_from_elf(elf, target_address, end_address=None, max_instructions=0):
-    # Iterate over all program headers/segments
-    for segment in elf.iter_segments():
-        if segment.header.p_type != 'PT_LOAD':
-            continue
-
-        # Calculate the virtual address range for the segment
-        segment_start_address = segment.header.p_vaddr
-        segment_end_address = segment_start_address + segment.header.p_memsz
-
-        # Check if the target address is within the current segment
-        if segment_start_address <= target_address < segment_end_address:
-            # Calculate the offset from the start of the segment
-            offset = target_address - segment_start_address
-
-            # Read the data at the specified offset (8 bytes should be enough for one instruction)
-            if end_address is None:
-                data = segment.data()[offset:offset+8*max_instructions]
-            else:
-                data = segment.data()[offset:offset+end_address-target_address]
-
-            # Return the instructions
-            return data 
-
-    # If the target address is not found, return None
-    return None
-
-def extract_pcode_from_elf(elf, target_address, end_address=None, max_instructions=0):
-    data = extract_assembly_from_elf(elf, target_address, end_address, max_instructions)
-    if len(data) == 0:
-        return None
-
-    # Translate instructions to pcode
-    ctx = Context('RISCV:LE:64:default')
-    tx = ctx.translate(data, base_address=target_address, max_instructions=max_instructions)
-    # Return the pcode
-    return tx.ops
-
-def load_instructions(elf):
+def load_instructions(elf_file):
     instructions = dict()
     data = None
-    for segment in elf.iter_segments():
-        if segment.header.p_type == 'PT_LOAD':
-            data = segment.data()
-            base_address = segment.header.p_vaddr
-            break
 
-    if data == None:
-        print('[ERROR]: Unable to find loadable segment in binary')
-        return
-
-    # Translate instructions to pcode
     ctx = Context('RISCV:LE:64:default')
-    tx = ctx.translate(data, base_address=base_address)
 
-    current_insn_addr = None
-    for op in tx.ops:
-        if op.opcode == OpCode.IMARK:
-            current_insn_addr = op.inputs[0].offset
-            instructions[current_insn_addr] = []
-            continue
+    for section in elf_file.iter_sections():
+        if section.name == '.text':  # Assuming text sections contain executable code
+            # Get the address range for the section
+            start_address = section['sh_addr']
+            end_address = start_address + section['sh_size']
+            
+            # Iterate over symbols to find functions within the section
+            for symbol in elf_file.get_section_by_name('.symtab').iter_symbols():
+                if symbol['st_info']['type'] == 'STT_FUNC':
+                    symbol_address = symbol['st_value']
+                    if start_address <= symbol_address < end_address:
+                        # Load the binary data of the function
+                        function_data = section.data()[symbol_address - start_address : symbol_address - start_address + symbol['st_size']]
 
-        instructions[current_insn_addr].append(op)
+                        # Translate binary data into pcode operations
+                        tx = ctx.translate(function_data, base_address=symbol_address)
+                        current_insn_addr = None
+                        for op in tx.ops:
+                            # Keep track of instruction markers
+                            if op.opcode == OpCode.IMARK:
+                                current_insn_addr = op.inputs[0].offset
+                                instructions[current_insn_addr] = []
+                                continue
+
+                            instructions[current_insn_addr].append(op)
 
     return instructions
+
+def decode_file_line(dwarfinfo, address):
+    # Go over all the line programs in the DWARF information, looking for
+    # one that describes the given address.
+    for CU in dwarfinfo.iter_CUs():
+        # First, look at line programs to find the file/line for the address
+        lineprog = dwarfinfo.line_program_for_CU(CU)
+        prevstate = None
+        for entry in lineprog.get_entries():
+            # We're interested in those entries where a new state is assigned
+            if entry.state is None:
+                continue
+            if entry.state.end_sequence:
+                # if the line number sequence ends, clear prevstate.
+                prevstate = None
+                continue
+            # Looking for a range of addresses in two consecutive states that
+            # contain the required address.
+            if prevstate and prevstate.address <= address < entry.state.address:
+                filename = lineprog['file_entry'][prevstate.file - 1].name
+                line = prevstate.line
+                return filename, line
+            prevstate = entry.state
+    return None, None
 
 class Function:
     def __init__(self, symbol, start_address, end_address):
@@ -119,26 +121,33 @@ class BasicBlock:
         self.dominators = []
         self.discovered_index = -1
 
-def find_basic_blocks(ops, start_address, end_address):
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f'BasicBlock<{self.discovered_index}> {hex(self.start_address)}-{hex(self.end_address)}'
+
+    def __gt__(self, other):
+        return self.discovered_index > other.discovered_index
+
+def find_basic_blocks(instructions, start_address, end_address):
     basic_blocks = dict()
     splits = set(())
 
-    current_insn_addr = 0
+    insn_addresses = sorted(instructions.keys())
     split_next_insn = False
-    insn_ops = dict()
-    for op in ops:
-        if op.opcode == OpCode.IMARK:
-            current_insn_addr = op.inputs[0].offset
-            insn_ops[current_insn_addr] = []
-            if split_next_insn:
-                split_next_insn = False
-                splits.add(current_insn_addr)
-            continue
+    for addr in insn_addresses[insn_addresses.index(start_address):]:
+        if addr > end_address:
+            break
 
-        insn_ops[current_insn_addr].append(op)
+        if split_next_insn:
+            splits.add(addr)
+            split_next_insn = False
 
-        if op.opcode == OpCode.CBRANCH or op.opcode == OpCode.BRANCH:
-            splits.add(op.inputs[0].offset)
+        last_op = instructions[addr][-1]
+
+        if last_op.opcode == OpCode.CBRANCH or last_op.opcode == OpCode.BRANCH:
+            splits.add(last_op.inputs[0].offset)
             split_next_insn = True
 
     head = start_address
@@ -152,8 +161,8 @@ def find_basic_blocks(ops, start_address, end_address):
 
     for bb in basic_blocks.values():
         for addr in range(bb.start_address, bb.end_address):
-            if addr in insn_ops:
-                bb.instructions[addr] = insn_ops[addr]
+            if addr in instructions:
+                bb.instructions[addr] = instructions[addr]
 
     return basic_blocks
 
@@ -165,6 +174,9 @@ def build_cfg(basic_blocks, current, discovered, postorder):
     current.discovered_index = len(discovered)
 
     discovered.append(current.start_address)
+
+    if len(current.instructions) == 0:
+        return
 
     last_op = current.instructions[max(current.instructions)][-1]
 
@@ -246,6 +258,25 @@ def dominates(a, b, entry, idoms):
 
     return False
 
+def _get_predecessors(bb, function, discovered):
+    if bb.start_address in discovered:
+        return set(())
+    discovered.add(bb.start_address)
+
+    if function != None and (bb.start_address < function.start_address or bb.end_address > function.end_address):
+        return set(())
+
+    predecessors = set(filter(lambda pred: pred.start_address not in discovered, bb.predecessors))
+
+    for predecessor in predecessors:
+        predecessors = predecessors.union(_get_predecessors(predecessor, function, discovered))
+
+    return predecessors
+
+def get_predecessors(bb, function=None):
+    return _get_predecessors(bb, function, set(()))
+
+
 def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[]):
     print('affects condition ', hex(bb.start_address), condition_nodes)
     if bb.start_address in discovered:
@@ -290,8 +321,6 @@ def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[
             return True
 
     return False
-
-
 
 
 def debug_console(_locals):
