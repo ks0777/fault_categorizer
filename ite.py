@@ -106,28 +106,33 @@ def identify_constructs(basic_blocks, function, postorder):
 
     return constructs
 
+def find_related_construct(constructs, target_address):
+    related_construct = None
+    for construct in constructs:
+        for condition_block in construct.condition_blocks:
+            if target_address >= condition_block.start_address and target_address <= condition_block.end_address:
+                related_construct = construct
+                break
+
+    return related_construct
 
 def check_ite(basic_blocks, instructions, function, ddg, postorder, target_address):
     constructs = identify_constructs(basic_blocks, function, postorder)
 
-    for construct in constructs:
-        for condition_block in construct.condition_blocks:
-            if target_address >= condition_block.start_address and target_address <= condition_block.end_address:
-                print(hex(target_address), construct)
-                break
-
-
     last_op = instructions[target_address][-1]
     if last_op.opcode == OpCode.BRANCH:
-        return util.FaultReport(target_address, util.FaultCategory.ITE_1) # We skipped a branch instruction in the ITE construction and wrongfully executed the else part.
+        related_construct = find_related_construct(constructs, target_address)
+        return util.FaultReport(target_address, util.FaultCategory.ITE_1, related_construct=related_construct) # We skipped a branch instruction in the ITE construction and wrongfully executed the else part.
 
     if last_op.opcode == OpCode.CBRANCH:
-        return util.FaultReport(target_address, util.FaultCategory.ITE_2) # We skipped the conditional branch and executed secured code instead of the insecure default
+        related_construct = find_related_construct(constructs, target_address)
+        return util.FaultReport(target_address, util.FaultCategory.ITE_2, related_construct=related_construct) # We skipped the conditional branch and executed secured code instead of the insecure default
 
     dependents = ddg.find_dependents(target_address)
     for node in dependents:
         ops = instructions[node.insn_addr]
         if ops[-1].opcode == OpCode.CBRANCH:
-            return util.FaultReport(target_address, util.FaultCategory.ITE_3, node.insn_addr) # We skipped an instruction that affects the conditional branch of the ITE construction
+            related_construct = find_related_construct(constructs, node.insn_addr)
+            return util.FaultReport(target_address, util.FaultCategory.ITE_3, affected_branch=node.insn_addr, related_construct=related_construct) # We skipped an instruction that affects the conditional branch of the ITE construction
 
     return None

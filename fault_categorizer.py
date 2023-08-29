@@ -84,9 +84,7 @@ def categorize_faults(args):
                 print('\tThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data.')
 
         if args.countermeasures:
-            get_countermeasure(report)
-
-    #util.debug_console(locals())
+            print(get_countermeasure(report))
 
     f_bin.close()
 

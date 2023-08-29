@@ -4,10 +4,11 @@ from pypcode.pypcode_native import OpCode, BadDataError
 from enum import Enum
 
 class FaultReport():
-    def __init__(self, fault_address, category, affected_branch=None):
+    def __init__(self, fault_address, category, affected_branch=None, related_construct=None):
         self.fault_address = fault_address
         self.category = category
         self.affected_branch = affected_branch
+        self.related_construct = related_construct
 
     def __str__(self):
         return str(self.category) + (f' affected branch at {hex(self.affected_branch)}' if self.affected_branch else '')
