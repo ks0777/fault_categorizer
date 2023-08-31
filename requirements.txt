@@ -1,3 +1,6 @@
 pypcode @ git+https://github.com/angr/pypcode@master
 pyelftools==0.29
-
+h5py==3.9.0
+pandas==2.0.3
+networkx==3.1
+tables==3.8.0

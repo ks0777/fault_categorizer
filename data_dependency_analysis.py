@@ -88,16 +88,18 @@ class DataDependencyAnalysis:
                 ops = self._instructions[insn_addr]
 
                 for op in ops:
-                    output = op.output.offset if op.output != None else None
+                    outputs = [op.output.offset] if op.output != None else []
                     if op.opcode == OpCode.STORE:
                         writes = self._meminfo[(self._meminfo['insaddr'] == insn_addr) & (self._meminfo['direction'] == 1)]['address']
-                        # Let's assume we only ever write to the same memory address for now TODO: Dont assume this
-                        output = writes.values[0]
+                        outputs += list(writes.values)
                         #print(f'writing to {hex(output)}')
 
-                    node = Node(output, insn_addr, index)
-                    if node not in self.graph:
-                        self.graph.add_node(node)
+                    nodes = []
+                    for output in outputs:
+                        node = Node(output, insn_addr, index)
+                        if node not in self.graph:
+                            nodes.append(node)
+                            self.graph.add_node(node)
 
                     inputs = list(map(lambda varnode: varnode.offset, filter(lambda  _input: _input.space.name != 'const', op.inputs)))
 
@@ -107,10 +109,10 @@ class DataDependencyAnalysis:
                         inputs.extend(reads.values)
 
                     for _input in inputs:
-                        write_op_nodes = list(filter(lambda _node: _node.location == _input and _node != node, self.graph.nodes()))
+                        write_op_nodes = list(filter(lambda _node: _node.location == _input and _node not in nodes, self.graph.nodes()))
                         if len(write_op_nodes) > 0:
-                            #print(f"{node} depends on {next(filter(lambda _node: write_op_nodes[-1] == _node, self.graph.nodes()))}")
-                            self.graph.add_edge(write_op_nodes[-1], next(filter(lambda _node: node == _node, self.graph.nodes())))
+                            for node in nodes:
+                                self.graph.add_edge(write_op_nodes[-1], next(filter(lambda _node: node == _node, self.graph.nodes())))
 
                     index +=1
                      

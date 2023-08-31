@@ -1,5 +1,6 @@
+from pypcode.pypcode_native import OpCode as OpCode
 import util
-from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
+import pandas
 
 class IfThen:
     def __init__(self, condition_blocks = [], then_blocks = []):
@@ -29,7 +30,7 @@ def identify_constructs(basic_blocks, function, postorder):
 
     for start_address in postorder:
         bb = basic_blocks[start_address]
-        # Check if basic block is at the end of an IT(E) construct. It will have two predecessors in that case
+        # Check if basic block is at the end of an IT(E) construct. It will have more than two predecessors in that case
         if len(bb.predecessors) >= 2:
             all_preds = sorted([util.get_predecessors(predecessor, function).union([predecessor]) for predecessor in bb.predecessors], key=lambda preds: len(preds))
             shortest_path = all_preds[0]
@@ -50,6 +51,8 @@ def identify_constructs(basic_blocks, function, postorder):
             # If the shortest path is a subset of the longest path we do not have an else part
             if len(shortest_path - longest_path) == 0:
                 then_blocks = longest_path - pre_body_blocks
+                if len(then_blocks) == 0:
+                    continue
                 then_head = sorted(then_blocks)[0]
 
                 # Follow up sequence of blocks that only have a single predecessor and have the body of the construct as a successor.
@@ -107,32 +110,60 @@ def identify_constructs(basic_blocks, function, postorder):
     return constructs
 
 def find_related_construct(constructs, target_address):
-    related_construct = None
     for construct in constructs:
         for condition_block in construct.condition_blocks:
             if target_address >= condition_block.start_address and target_address <= condition_block.end_address:
-                related_construct = construct
-                break
+                return construct
 
-    return related_construct
 
-def check_ite(basic_blocks, instructions, function, ddg, postorder, target_address):
+def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, fault_dict, hdf_path, target_address):
     constructs = identify_constructs(basic_blocks, function, postorder)
 
     last_op = instructions[target_address][-1]
     if last_op.opcode == OpCode.BRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        return util.FaultReport(target_address, util.FaultCategory.ITE_1, related_construct=related_construct) # We skipped a branch instruction in the ITE construction and wrongfully executed the else part.
+        if related_construct != None and isinstance(report.related_construct, IfThenElse):
+            return util.FaultReport(target_address, util.FaultCategory.ITE_1) # We skipped a branch instruction in the ITE construction and wrongfully executed the else part.
+        return None
 
     if last_op.opcode == OpCode.CBRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        return util.FaultReport(target_address, util.FaultCategory.ITE_2, related_construct=related_construct) # We skipped the conditional branch and executed secured code instead of the insecure default
+        return util.FaultReport(target_address, util.FaultCategory.ITE_2, related_constructs={target_address: related_construct}) # We skipped the conditional branch and executed secured code instead of the insecure default
 
     dependents = ddg.find_dependents(target_address)
-    for node in dependents:
-        ops = instructions[node.insn_addr]
-        if ops[-1].opcode == OpCode.CBRANCH:
-            related_construct = find_related_construct(constructs, node.insn_addr)
-            return util.FaultReport(target_address, util.FaultCategory.ITE_3, affected_branch=node.insn_addr, related_construct=related_construct) # We skipped an instruction that affects the conditional branch of the ITE construction
 
+    tbexeclist_max_pos = max(tbexeclist['pos'])
+
+    ring_buffer_enabled = fault_dict == None
+
+    if not ring_buffer_enabled:
+        affected_branches = set()
+        for experiment in fault_dict[target_address]:
+            tbexeclist_fault = pandas.read_hdf(hdf_path, f'fault/{experiment}/tbexeclist')
+            tbexeclist_fault_min_pos = min(tbexeclist_fault['pos'])
+            if (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos:
+                print('[WARNING]: Execution traces of the goldenrun and the experiment do not overlap. Was the ring buffer enabled in ARCHIE?')
+            affected_bb = tbexeclist[tbexeclist['pos'] == tbexeclist_fault_min_pos - 1]['tb'] # Last basic block in trace before diversion from goldenrun
+            instructions = basic_blocks[affected_bb.iloc[0]].instructions
+            if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
+                affected_branches.add(max(instructions))
+
+    fault_report = util.FaultReport(target_address, util.FaultCategory.ITE_3, affected_branches=[], related_constructs=dict())
+
+    for node in {node.insn_addr: node for node in dependents}.values():
+        if not ring_buffer_enabled and node.insn_addr in affected_branches:
+            related_construct = find_related_construct(constructs, node.insn_addr)
+            fault_report.affected_branches.append(node.insn_addr)
+            fault_report.related_constructs[node.insn_addr] = related_construct
+
+        elif ring_buffer_enabled:
+            ops = instructions[node.insn_addr]
+            if ops[-1].opcode == OpCode.CBRANCH:
+                related_construct = find_related_construct(constructs, node.insn_addr)
+                fault_report.affected_branches.append(node.insn_addr)
+                fault_report.related_constructs[node.insn_addr] = related_construct
+
+    if len(fault_report.affected_branches) > 0:
+        return fault_report
     return None
+

@@ -4,14 +4,14 @@ from pypcode.pypcode_native import OpCode, BadDataError
 from enum import Enum
 
 class FaultReport():
-    def __init__(self, fault_address, category, affected_branch=None, related_construct=None):
+    def __init__(self, fault_address, category, affected_branches=None, related_constructs=None):
         self.fault_address = fault_address
         self.category = category
-        self.affected_branch = affected_branch
-        self.related_construct = related_construct
+        self.affected_branches = affected_branches
+        self.related_constructs = related_constructs
 
     def __str__(self):
-        return str(self.category) + (f' affected branch at {hex(self.affected_branch)}' if self.affected_branch else '')
+        return str(self.category) + (f' affected branches at {[hex(branch_addr) for branch_addr in self.affected_branches]}' if self.affected_branches else '')
 
 class FaultCategory(Enum):
     UNKNOWN = 0
@@ -21,6 +21,10 @@ class FaultCategory(Enum):
     ITE_1 = 4
     ITE_2 = 5
     ITE_3 = 6
+    MISC_LOAD = 7
+    MISC_STORE = 8
+    MISC_BRANCH = 9
+    MISC = 10
 
 def load_instructions(elf_file):
     instructions = dict()
@@ -218,7 +222,8 @@ def intersect(b1, b2, idoms, postorder_map):
     return b1
     
 
-# https://www.cs.rice.edu/~keith/EMBED/dom.pdf
+# A Simple, Fast Dominance Algorithm
+# https://www.cs.rice.edu/~keith/Publications/TR06-33870-Dom.pdf
 def find_dominators(basic_blocks, entry_bb, postorder):
     idoms = dict()
     idoms[entry_bb.start_address] = entry_bb.start_address
@@ -247,7 +252,7 @@ def find_dominators(basic_blocks, entry_bb, postorder):
     return idoms
                 
 def dominates(a, b, entry, idoms):
-    if a == entry:
+    if a == entry or a == b:
         return True
 
     runner = idoms[b]
@@ -276,6 +281,13 @@ def _get_predecessors(bb, function, discovered):
 
 def get_predecessors(bb, function=None):
     return _get_predecessors(bb, function, set(()))
+
+def is_ring_buffer_enabled(tbexeclist, tbexeclist_fault):
+    tbexeclist_max_pos = max(tbexeclist['pos'])
+    tbexeclist_fault_min_pos = min(tbexeclist_fault['pos'])
+    print(tbexeclist_fault_min_pos, tbexeclist_max_pos)
+    print(tbexeclist, tbexeclist_fault)
+    return (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos
 
 
 def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[]):
@@ -322,7 +334,6 @@ def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[
             return True
 
     return False
-
 
 def debug_console(_locals):
     import code
