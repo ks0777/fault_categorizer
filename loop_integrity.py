@@ -47,6 +47,6 @@ def check_li(basic_blocks, ddg, idoms, start_address, target_address):
                 if last_op.opcode == OpCode.CBRANCH:
                     dependencies = ddg.find_dependencies(address)
                     if target_address in map(lambda node: node.insn_addr, dependencies):
-                        return util.FaultReport(target_address, util.FaultCategory.LI_2, affected_branches=[node.insn_addr])
+                        return util.FaultReport(target_address, util.FaultCategory.LI_2, affected_branches=[target_address])
 
     return None

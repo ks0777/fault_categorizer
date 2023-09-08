@@ -122,7 +122,7 @@ def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, 
     last_op = instructions[target_address][-1]
     if last_op.opcode == OpCode.BRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        if related_construct != None and isinstance(report.related_construct, IfThenElse):
+        if related_construct != None and isinstance(related_construct, IfThenElse):
             return util.FaultReport(target_address, util.FaultCategory.ITE_1) # We skipped a branch instruction in the ITE construction and wrongfully executed the else part.
         return None
 

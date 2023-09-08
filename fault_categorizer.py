@@ -85,7 +85,10 @@ def categorize_faults(args):
 
     for report in fault_reports:
         source_line = util.decode_file_line(elf.get_dwarf_info(), report.fault_address)
-        print(f"Skipped instruction at {hex(report.fault_address)} ({source_line[0].decode()}:{source_line[1]}) caused fault of type {report.category}")
+        if source_line[0] != None:
+            print(f"Skipped instruction at {hex(report.fault_address)} ({source_line[0].decode()}:{source_line[1]}) caused fault of type {report.category}")
+        else:
+            print(f"Skipped instruction at {hex(report.fault_address)} caused fault of type {report.category}")
         if report.affected_branches:
             if len(report.affected_branches) == 1:
                 source_line = util.decode_file_line(elf.get_dwarf_info(), report.affected_branches[0])
