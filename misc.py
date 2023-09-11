@@ -9,6 +9,8 @@ def check_branch(instructions, target_address):
 
 def check_branch_intervention(report, instructions, target_address):
     related_constructs = list(report.related_constructs.values())
+    if len(related_constructs) == 1:
+        return report
 
     # The related construct is None if none was identified or if the according branch instruction was outside of the function scope of the faulted instruction
     # If the faulted instruction only affects a single construct in the same function it likely means that the fault directly affects the validation of the condition and not the calculation of some value of the condition

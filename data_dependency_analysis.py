@@ -76,7 +76,7 @@ class DataDependencyAnalysis:
 
         index = 0
         for tb_addr in self._tbexeclist['tb']: 
-            if tb_addr in visited_tbs:
+            if tb_addr in visited_tbs or tb_addr not in insn_addresses:
                 continue
             visited_tbs.append(tb_addr)
             tb = self._tbinfo.loc[tb_addr]
