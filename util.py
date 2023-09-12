@@ -2,13 +2,22 @@ from pypcode import Context
 from pypcode.pypcode_native import OpCode, BadDataError
 
 from enum import Enum
+import jsonpickle.handlers
 
 class FaultReport():
     def __init__(self, fault_address, category, affected_branches=None, related_constructs=None):
         self.fault_address = fault_address
+        self.source = None
         self.category = category
         self.affected_branches = affected_branches
         self.related_constructs = related_constructs
+        self.countermeasure = None
+
+    def set_source(self, source):
+        self.source = source
+
+    def set_countermeasure(self, countermeasure):
+        self.countermeasure = countermeasure
 
     def __str__(self):
         return str(self.category) + (f' affected branches at {[hex(branch_addr) for branch_addr in self.affected_branches]}' if self.affected_branches else '')
@@ -25,6 +34,16 @@ class FaultCategory(Enum):
     MISC_STORE = 8
     MISC_BRANCH = 9
     MISC = 10
+
+@jsonpickle.handlers.register(FaultCategory, base=True)
+class FaultCategoryHandler(jsonpickle.handlers.BaseHandler):
+
+    def flatten(self, obj, data):
+        data = str(obj).split('.')[1]
+        return data
+
+    def restore(self, obj):
+        pass
 
 def load_instructions(elf_file):
     instructions = dict()
@@ -61,8 +80,7 @@ def load_instructions(elf_file):
     return instructions
 
 def decode_file_line(dwarfinfo, address):
-    # Go over all the line programs in the DWARF information, looking for
-    # one that describes the given address.
+    # Go over all the line programs in the DWARF information, looking for one that describes the given address.
     for CU in dwarfinfo.iter_CUs():
         # First, look at line programs to find the file/line for the address
         lineprog = dwarfinfo.line_program_for_CU(CU)
@@ -75,8 +93,7 @@ def decode_file_line(dwarfinfo, address):
                 # if the line number sequence ends, clear prevstate.
                 prevstate = None
                 continue
-            # Looking for a range of addresses in two consecutive states that
-            # contain the required address.
+            # Looking for a range of addresses in two consecutive states that contain the required address.
             if prevstate and prevstate.address <= address < entry.state.address:
                 filename = lineprog['file_entry'][prevstate.file - 1].name
                 line = prevstate.line
@@ -115,7 +132,6 @@ def find_function_by_address(elf, target_address):
     # If no matching function is found, return None
     return None
 
-
 class BasicBlock:
     def __init__(self, start_address, end_address, instructions):
         self.start_address = start_address
@@ -134,6 +150,17 @@ class BasicBlock:
 
     def __gt__(self, other):
         return self.discovered_index > other.discovered_index
+
+@jsonpickle.handlers.register(BasicBlock, base=True)
+class BasicBlockHandler(jsonpickle.handlers.BaseHandler):
+
+    def flatten(self, bb, data):
+        data['start_address'] = bb.start_address
+        data['end_address'] = bb.end_address
+        return data
+
+    def restore(self, obj):
+        pass
 
 def find_basic_blocks(instructions, start_address, end_address):
     basic_blocks = dict()
@@ -334,15 +361,3 @@ def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[
             return True
 
     return False
-
-def debug_console(_locals):
-    import code
-    import readline
-    import rlcompleter
-               
-    vars = globals()
-    vars.update(_locals)
-                                                  
-    readline.set_completer(rlcompleter.Completer(vars).complete)
-    readline.parse_and_bind("tab: complete")
-    code.InteractiveConsole(vars).interact()

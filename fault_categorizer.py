@@ -14,6 +14,7 @@ import util
 
 import pandas
 import h5py
+import jsonpickle
 
 from data_dependency_analysis import DataDependencyAnalysis
 from countermeasures import get_countermeasure
@@ -26,6 +27,114 @@ def check_cfi(instructions, elf, target_address):
     f = util.find_function_by_address(elf, target_address)
 
     return any(op.opcode == OpCode.RETURN for op in ops)
+
+def log_results(fault_reports, elf, ddg, instructions, args):
+    for report in fault_reports:
+        if args.countermeasures:
+            report.set_countermeasure(get_countermeasure(report, not args.accurate))
+        source = util.decode_file_line(elf.get_dwarf_info(), report.fault_address)
+        if source != (None, None):
+            source = { 'filename': source[0].decode(), 'line': source[1] }
+            report.set_source(source)
+        if report.affected_branches == None:
+            continue
+        for i, address in enumerate(report.affected_branches):
+            source = util.decode_file_line(elf.get_dwarf_info(), address)
+            if source != (None, None):
+                source = { 'filename': source[0].decode(), 'line': source[1] }
+                report.affected_branches[i] = { 'address': report.affected_branches[i], 'source': source }
+
+    if args.output == 'json':
+        print(jsonpickle.encode(fault_reports, unpicklable=False))
+        return
+
+    if args.output == 'sarif':
+        sarif_report = dict()
+        sarif_report['$schema'] = 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json'
+        sarif_report['version'] = '2.1.0'
+        sarif_report['runs'] = [{
+            'tool': {
+                'driver': {
+                    'name': 'Fault Analysis',
+                    'informationUri': 'https://github.com/ks0777/fault_categorizer',
+                    'version': '1.0'
+                }
+            },
+            'results': [
+                {
+                    'ruleId': report.category,
+                    'message': { 'text': (report.countermeasure if report.countermeasure else '') },
+                    'locations': [
+                        {
+                            'physicalLocation': {
+                                'artifactLocation': {
+                                    'uri': report.source['filename']
+                                },
+                                'region': {
+                                    'startLine': report.source['line']
+                                }
+                            }
+                        } 
+                    ] + ([
+                        {
+                            'physicalLocation': {
+                                'artifactLocation': {
+                                    'uri': affected_branch['source']['filename']
+                                },
+                                'region': {
+                                    'startLine': affected_branch['source']['line']
+                                }
+                            }
+                        }
+                    for affected_branch in report.affected_branches] if report.affected_branches != None else [] )
+                }
+            for report in fault_reports]
+        }]
+
+        print(jsonpickle.encode(sarif_report, unpicklable=False))
+        return
+
+
+    for report in fault_reports:
+        if report.source != None:
+            print(f"Skipped instruction at {hex(report.fault_address)} ({report.source['filename']}:{report.source['line']}) caused fault of type {report.category}")
+        else:
+            print(f"Skipped instruction at {hex(report.fault_address)} caused fault of type {report.category}")
+        if report.affected_branches:
+            if len(report.affected_branches) == 1:
+                branch = report.affected_branches[0]
+                source = branch['source']
+                print(f"\tFault affected branch at {hex(branch['address'])}", end='')
+                if branch['source'] != None:
+                    print(f" ({source['filename']}:{source['line']})", end='')
+                print('')
+            else:
+                print(f"\tFault {'affects' if args.accurate else 'MIGHT have affected'} multiple branches at:")
+                for branch in report.affected_branches:
+                    source = branch['source']
+                    if source != None:
+                        print(f"\t\t{hex(branch['address'])} ({source['filename']}:{source['line']})")
+                    print('')
+
+        if report.category == util.FaultCategory.UNKNOWN:
+            print(f"\tUnable to detect how the skipped instruction influences the control flow. The instruction affects the following instructions: ")
+            dependents = ddg.find_dependents(report.fault_address)
+            affects_store_op = False
+            for dep in dependents:
+                print(f"\t\t{str(dep)}")
+                for op in instructions[dep.insn_addr]:
+                    if op.opcode == OpCode.STORE:
+                        affects_store_op = True
+                        break
+
+            if affects_store_op:
+                print('\tThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data.')
+
+        if report.countermeasure:
+            print(report.countermeasure)
+
+        print('')
+
 
 def categorize_faults(args):
     fault_reports = []
@@ -83,40 +192,7 @@ def categorize_faults(args):
 
         fault_reports.append(util.FaultReport(target_address, util.FaultCategory.UNKNOWN))
 
-    for report in fault_reports:
-        source_line = util.decode_file_line(elf.get_dwarf_info(), report.fault_address)
-        if source_line[0] != None:
-            print(f"Skipped instruction at {hex(report.fault_address)} ({source_line[0].decode()}:{source_line[1]}) caused fault of type {report.category}")
-        else:
-            print(f"Skipped instruction at {hex(report.fault_address)} caused fault of type {report.category}")
-        if report.affected_branches:
-            if len(report.affected_branches) == 1:
-                source_line = util.decode_file_line(elf.get_dwarf_info(), report.affected_branches[0])
-                print(f"\tFault affected branch at {hex(report.affected_branches[0])} ({source_line[0].decode()}:{source_line[1]})")
-            else:
-                print(f"\tFault {'affects' if args.accurate else 'MIGHT have affected'} multiple branches at:")
-                for branch_address in report.affected_branches:
-                    source_line = util.decode_file_line(elf.get_dwarf_info(), branch_address)
-                    print(f"\t\t{hex(branch_address)} ({source_line[0].decode()}:{source_line[1]})")
-
-        if report.category == util.FaultCategory.UNKNOWN:
-            print(f"\tUnable to detect how the skipped instruction influences the control flow. The instruction affects the following instructions: ")
-            dependents = ddg.find_dependents(report.fault_address)
-            affects_store_op = False
-            for dep in dependents:
-                print(f"\t\t{str(dep)}")
-                for op in instructions[dep.insn_addr]:
-                    if op.opcode == OpCode.STORE:
-                        affects_store_op = True
-                        break
-
-            if affects_store_op:
-                print('\tThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data.')
-
-        if args.countermeasures:
-            print(get_countermeasure(report, not args.accurate))
-
-        print('')
+    log_results(fault_reports, elf, ddg, instructions, args)
 
     f_bin.close()
 
@@ -144,6 +220,12 @@ def main():
     parser.add_argument('--accurate',
         help='Accurate analysis of branch affecting faults. Needs the ring buffer in ARCHIE to be disabled since it uses the execution trace to identify the affected branch. If disabled this tool will generate reports for every branch that might be affected.',
         action='store_true'
+    )
+    parser.add_argument('--output',
+        help='Output analysis results in json format',
+        choices=['h', 'json', 'sarif'],
+        default='h',
+        required=False
     )
 
     args = parser.parse_args()

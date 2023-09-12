@@ -148,7 +148,7 @@ def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, 
         for experiment in fault_dict[target_address]:
             tbexeclist_fault = pandas.read_hdf(hdf_path, f'fault/{experiment}/tbexeclist')
             if len(tbexeclist_fault) == 0:
-                print('lmao what?')
+                # Should not happen unless the target address is already reached in the goldenrun
                 continue
             tbexeclist_fault_min_pos = min(tbexeclist_fault['pos'])
             if (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos:
@@ -160,7 +160,6 @@ def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, 
                 # Basic block not found. The tbexeclist contains addresses of QEMU's translation blocks. These are blocks of code which are translated by QEMU's tcg.
                 # In most cases they are identical to the basic blocks. On some occassions QEMU will however split up basic blocks into multiple translation blocks,
                 # which is why we need to look for the next best basic block here in that case.
-                print(affected_bb.iloc[0], basic_blocks.keys(), hex(function.start_address))
                 affected_bb = max(list(filter(lambda bb_start: bb_start < affected_bb.iloc[0], basic_blocks.keys())))
                 instructions = basic_blocks[affected_bb].instructions
             if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
