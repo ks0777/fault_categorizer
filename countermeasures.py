@@ -38,3 +38,21 @@ def get_countermeasure(report, ring_buffer_enabled):
 
     if report.category == FaultCategory.UNKNOWN:
         return "Unable to detect how the faulted instruction influences the control flow."
+
+def get_rules():
+    return [
+        {
+            'id': 'CFI',
+            'name': 'Control Flow Integrity',
+            'shortDescription': {
+                'text': 'Lorem ipsum'
+            },
+            'fullDescription': {
+                'text': 'Lorem ipsum dolir sit amet consetutor'
+            },
+            'help': {
+                'text': '',
+                'markdown': '# Control Flow Integrity\nyo'
+            }
+        }
+    ]

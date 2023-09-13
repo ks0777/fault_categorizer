@@ -17,7 +17,7 @@ import h5py
 import jsonpickle
 
 from data_dependency_analysis import DataDependencyAnalysis
-from countermeasures import get_countermeasure
+from countermeasures import get_countermeasure, get_rules
 
 def check_cfi(instructions, elf, target_address):
     ops = instructions[target_address]
@@ -57,7 +57,8 @@ def log_results(fault_reports, elf, ddg, instructions, args):
                 'driver': {
                     'name': 'Fault Analysis',
                     'informationUri': 'https://github.com/ks0777/fault_categorizer',
-                    'version': '1.0'
+                    'version': '1.0',
+                    'rules': get_rules()
                 }
             },
             'results': [
