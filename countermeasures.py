@@ -2,7 +2,10 @@ from util import FaultCategory
 from ite import IfThen, IfThenElse
 
 def get_countermeasure(report, ring_buffer_enabled):
-    if report.category == FaultCategory.CFI:
+    if report.category == FaultCategory.CFI_1:
+        return "The faulted instruction is a function call. Harden this code by implementing a global counter that is increased before the function call and decreased before the respective return. This value needs to be validated after a function call and should contain the same value as before the call. If this check fails, trigger a panic.\n\nUse the `FIH_CALL(f, ret, ...)` macro from the hardening header file to call the function and use the `FIH_RET(ret)` macro inside that function to return from it."
+
+    if report.category == FaultCategory.CFI_2:
         return "The faulted instruction is a CALL or RETURN. Harden this code by implementing a global counter that is increased/decreased on each function call/return respectively. This value needs to be validated after a function call and should contain the same value as before the call. If this check fails, trigger a panic."
 
     if report.category == FaultCategory.LI_1:
@@ -42,17 +45,28 @@ def get_countermeasure(report, ring_buffer_enabled):
 def get_rules():
     return [
         {
-            'id': 'CFI',
+            'id': 'CFI_1',
             'name': 'Control Flow Integrity',
             'shortDescription': {
-                'text': 'Lorem ipsum'
+                'text': 'Violation of control-flow integrity possible'
             },
             'fullDescription': {
                 'text': 'Lorem ipsum dolir sit amet consetutor'
             },
             'help': {
                 'text': '',
-                'markdown': '# Control Flow Integrity\nyo'
+                'markdown':
+"""\
+# Control Flow Integrity
+## Fault Description
+The faulted instruction is a function call. The fault causes the execution of the function to be fully skipped without causing any side effects.
+
+## Mitigation
+Harden this code by implementing a global counter that is saved locally and increased before each function call that should be protected. Every return instruction in that function needs to decrease that counter again before being executed. After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality. If this check fails, a panic needs to be triggered
+
+## Implementation
+Use the `FIH_CALL(f, ret, ...)` macro from the hardening header file to call the function and use the `FIH_RET(ret)` macro inside that function to return from it."
+"""
             }
         }
     ]

@@ -23,17 +23,19 @@ class FaultReport():
         return str(self.category) + (f' affected branches at {[hex(branch_addr) for branch_addr in self.affected_branches]}' if self.affected_branches else '')
 
 class FaultCategory(Enum):
-    UNKNOWN = 0
-    CFI = 1
-    LI_1 = 2
-    LI_2 = 3
-    ITE_1 = 4
-    ITE_2 = 5
-    ITE_3 = 6
-    MISC_LOAD = 7
-    MISC_STORE = 8
-    MISC_BRANCH = 9
-    MISC = 10
+    UNKNOWN     = 0
+    CFI_1       = 1
+    CFI_2       = 2
+    CFI_3       = 3
+    LI_1        = 4
+    LI_2        = 5
+    ITE_1       = 6
+    ITE_2       = 7
+    ITE_3       = 8
+    MISC_LOAD   = 9
+    MISC_STORE  = 10
+    MISC_BRANCH = 12
+    MISC        = 13
 
 @jsonpickle.handlers.register(FaultCategory, base=True)
 class FaultCategoryHandler(jsonpickle.handlers.BaseHandler):

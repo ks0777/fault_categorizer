@@ -19,14 +19,21 @@ import jsonpickle
 from data_dependency_analysis import DataDependencyAnalysis
 from countermeasures import get_countermeasure, get_rules
 
-def check_cfi(instructions, elf, target_address):
+def check_cfi(basic_blocks, instructions, elf, target_address):
+    fault_category = None
     ops = instructions[target_address]
     if any(op.opcode == OpCode.CALL for op in ops):
-        return True
+        fault_category = util.FaultCategory.CFI_1
 
-    f = util.find_function_by_address(elf, target_address)
+    if any(op.opcode == OpCode.RETURN for op in ops):
+        bb = basic_blocks[max(basic_blocks)]
+        if max(bb.instructions) == target_address:
+            fault_category = util.FaultCategory.CFI_2
+        else:
+            fault_category = util.FaultCategory.CFI_3
 
-    return any(op.opcode == OpCode.RETURN for op in ops)
+    if fault_category:
+        return util.FaultReport(target_address, fault_category)
 
 def log_results(fault_reports, elf, ddg, instructions, args):
     for report in fault_reports:
@@ -166,11 +173,6 @@ def categorize_faults(args):
     for target_address in args.address:
         target_address = int(target_address, 0)
 
-        if check_cfi(instructions, elf, target_address):
-            fault_report = util.FaultReport(target_address, util.FaultCategory.CFI)
-            fault_reports.append(fault_report)
-            continue
-
         function = util.find_function_by_address(elf, target_address)
         basic_blocks = util.find_basic_blocks(instructions, function.start_address, function.end_address)
 
@@ -179,6 +181,9 @@ def categorize_faults(args):
 
         idoms = util.find_dominators(basic_blocks, basic_blocks[function.start_address], postorder)
 
+        if (report := check_cfi(basic_blocks, instructions, elf, target_address)) != None:
+            fault_reports.append(report)
+            continue
         if (report := check_li(basic_blocks, ddg, idoms, function.start_address, target_address)) != None:
             fault_reports.append(report)
             continue
