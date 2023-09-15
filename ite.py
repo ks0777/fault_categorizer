@@ -123,7 +123,7 @@ def find_related_construct(constructs, target_address):
                 return construct
 
 
-def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, fault_dict, hdf_path, target_address):
+def check_ite(basic_blocks, instructions, function, ddg, postorder, affected_branches, target_address):
     constructs = identify_constructs(basic_blocks, function, postorder)
 
     last_op = instructions[target_address][-1]
@@ -139,41 +139,15 @@ def check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, 
 
     dependents = ddg.find_dependents(target_address)
 
-    tbexeclist_max_pos = max(tbexeclist['pos'])
-
-    ring_buffer_enabled = fault_dict == None
-
-    if not ring_buffer_enabled:
-        affected_branches = set()
-        for experiment in fault_dict[target_address]:
-            tbexeclist_fault = pandas.read_hdf(hdf_path, f'fault/{experiment}/tbexeclist')
-            if len(tbexeclist_fault) == 0:
-                # Should not happen unless the target address is already reached in the goldenrun
-                continue
-            tbexeclist_fault_min_pos = min(tbexeclist_fault['pos'])
-            if (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos:
-                print('[WARNING]: Execution traces of the goldenrun and the experiment do not overlap. Was the ring buffer enabled in ARCHIE?')
-            affected_bb = tbexeclist[tbexeclist['pos'] == tbexeclist_fault_min_pos - 1]['tb'] # Last basic block in trace before diversion from goldenrun
-            try:
-                instructions = basic_blocks[affected_bb.iloc[0]].instructions
-            except KeyError:
-                # Basic block not found. The tbexeclist contains addresses of QEMU's translation blocks. These are blocks of code which are translated by QEMU's tcg.
-                # In most cases they are identical to the basic blocks. On some occassions QEMU will however split up basic blocks into multiple translation blocks,
-                # which is why we need to look for the next best basic block here in that case.
-                affected_bb = max(list(filter(lambda bb_start: bb_start < affected_bb.iloc[0], basic_blocks.keys())))
-                instructions = basic_blocks[affected_bb].instructions
-            if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
-                affected_branches.add(max(instructions))
-
     fault_report = util.FaultReport(target_address, util.FaultCategory.ITE_3, affected_branches=[], related_constructs=dict())
 
     for node in {node.insn_addr: node for node in dependents}.values():
-        if not ring_buffer_enabled and node.insn_addr in affected_branches:
+        if affected_branches != None and node.insn_addr in affected_branches:
             related_construct = find_related_construct(constructs, node.insn_addr)
             fault_report.affected_branches.append(node.insn_addr)
             fault_report.related_constructs[node.insn_addr] = related_construct
 
-        elif ring_buffer_enabled:
+        elif affected_branches == None:
             ops = instructions[node.insn_addr]
             if ops[-1].opcode == OpCode.CBRANCH:
                 related_construct = find_related_construct(constructs, node.insn_addr)

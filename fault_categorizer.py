@@ -25,12 +25,15 @@ def check_cfi(basic_blocks, instructions, elf, target_address):
     if any(op.opcode == OpCode.CALL for op in ops):
         fault_category = util.FaultCategory.CFI_1
 
-    if any(op.opcode == OpCode.RETURN for op in ops):
-        bb = basic_blocks[max(basic_blocks)]
+    bb = basic_blocks[max(basic_blocks)]
+    if ops[-1].opcode == OpCode.RETURN:
         if max(bb.instructions) == target_address:
             fault_category = util.FaultCategory.CFI_2
         else:
             fault_category = util.FaultCategory.CFI_3
+
+    if ops[-1].opcode == OpCode.BRANCH and max(bb.instructions) == target_address:
+        fault_category = util.FaultCategory.CFI_4
 
     if fault_category:
         return util.FaultReport(target_address, fault_category)
@@ -177,17 +180,18 @@ def categorize_faults(args):
         basic_blocks = util.find_basic_blocks(instructions, function.start_address, function.end_address)
 
         postorder = []
-        util.build_cfg(basic_blocks, basic_blocks[function.start_address], [], postorder) 
+        util.build_cfg(basic_blocks, basic_blocks[function.start_address], function, [], postorder) 
 
-        idoms = util.find_dominators(basic_blocks, basic_blocks[function.start_address], postorder)
+        if args.accurate:
+            affected_branches = util.find_affected_branches(tbexeclist, basic_blocks, fault_dict, args.hdf, target_address)
 
         if (report := check_cfi(basic_blocks, instructions, elf, target_address)) != None:
             fault_reports.append(report)
             continue
-        if (report := check_li(basic_blocks, ddg, idoms, function.start_address, target_address)) != None:
+        if (report := check_li(basic_blocks, instructions, ddg, affected_branches, target_address)) != None:
             fault_reports.append(report)
             continue
-        if (report := check_ite(basic_blocks, instructions, function, ddg, postorder, tbexeclist, fault_dict, args.hdf, target_address)) != None:
+        if (report := check_ite(basic_blocks, instructions, function, ddg, postorder, affected_branches, target_address)) != None:
             if report.category == util.FaultCategory.ITE_3:
                 report = check_branch_intervention(report, instructions, target_address)
             fault_reports.append(report)

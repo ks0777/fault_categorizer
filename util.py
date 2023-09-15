@@ -3,6 +3,7 @@ from pypcode.pypcode_native import OpCode, BadDataError
 
 from enum import Enum
 import jsonpickle.handlers
+import pandas
 
 class FaultReport():
     def __init__(self, fault_address, category, affected_branches=None, related_constructs=None):
@@ -27,15 +28,20 @@ class FaultCategory(Enum):
     CFI_1       = 1
     CFI_2       = 2
     CFI_3       = 3
+    CFI_4       = 20
     LI_1        = 4
     LI_2        = 5
-    ITE_1       = 6
-    ITE_2       = 7
-    ITE_3       = 8
-    MISC_LOAD   = 9
-    MISC_STORE  = 10
-    MISC_BRANCH = 12
-    MISC        = 13
+    LI_3        = 6
+    LI_4        = 7
+    LI_5        = 8
+    LI_6        = 9
+    ITE_1       = 10
+    ITE_2       = 11
+    ITE_3       = 12
+    MISC_LOAD   = 13
+    MISC_STORE  = 14
+    MISC_BRANCH = 15
+    MISC        = 16
 
 @jsonpickle.handlers.register(FaultCategory, base=True)
 class FaultCategoryHandler(jsonpickle.handlers.BaseHandler):
@@ -109,6 +115,9 @@ class Function:
         self.start_address = start_address
         self.end_address = end_address
 
+    def contains_address(self, address):
+        return address >= self.start_address and address < self.end_address
+
 def find_function_by_address(elf, target_address):
     # Iterate over the sections in the ELF file
     for section in elf.iter_sections():
@@ -181,7 +190,9 @@ def find_basic_blocks(instructions, start_address, end_address):
         last_op = instructions[addr][-1]
 
         if last_op.opcode == OpCode.CBRANCH or last_op.opcode == OpCode.BRANCH:
-            splits.add(last_op.inputs[0].offset)
+            branch_target = last_op.inputs[0].offset
+            if branch_target >= start_address and branch_target < end_address:
+                splits.add(branch_target)
             split_next_insn = True
 
     head = start_address
@@ -190,8 +201,9 @@ def find_basic_blocks(instructions, start_address, end_address):
         basic_blocks[head] = bb
         head = split_addr
 
-    bb = BasicBlock(head, end_address, dict())
-    basic_blocks[head] = bb
+    if head != end_address:
+        bb = BasicBlock(head, end_address, dict())
+        basic_blocks[head] = bb
 
     for bb in basic_blocks.values():
         for addr in range(bb.start_address, bb.end_address):
@@ -200,7 +212,7 @@ def find_basic_blocks(instructions, start_address, end_address):
 
     return basic_blocks
 
-def build_cfg(basic_blocks, current, discovered, postorder):
+def build_cfg(basic_blocks, current, function, discovered, postorder):
     if current.start_address in discovered:
         #print(f'already found instruction at {hex(current.start_address)}')
         return
@@ -218,26 +230,30 @@ def build_cfg(basic_blocks, current, discovered, postorder):
         successor = basic_blocks[current.end_address + 1]
         successor.predecessors.append(current)
         current.successors.append(successor)
-        build_cfg(basic_blocks, successor, discovered, postorder)
+        build_cfg(basic_blocks, successor, function, discovered, postorder)
 
         branch_op = last_op 
         successor = basic_blocks[branch_op.inputs[0].offset]
         successor.predecessors.append(current)
         current.successors.append(successor)
-        build_cfg(basic_blocks, successor, discovered, postorder)
+        build_cfg(basic_blocks, successor, function, discovered, postorder)
     elif OpCode.BRANCH == last_op.opcode:
         branch_op = last_op 
-        successor = basic_blocks[branch_op.inputs[0].offset]
-        successor.predecessors.append(current)
-        current.successors.append(successor)
-        build_cfg(basic_blocks, successor, discovered, postorder)
+        branch_target = branch_op.inputs[0].offset
+        # Heavy optimizations may transform calls to deadend function into unconditional branches
+        # We need to check if the jump target is in the scope of this function
+        if function.contains_address(branch_target):
+            successor = basic_blocks[branch_target]
+            successor.predecessors.append(current)
+            current.successors.append(successor)
+            build_cfg(basic_blocks, successor, function, discovered, postorder)
     elif OpCode.RETURN == last_op.opcode:
         pass
     else:
         successor = basic_blocks[current.end_address + 1]
         current.successors.append(successor)
         successor.predecessors.append(current)
-        build_cfg(basic_blocks, basic_blocks[current.end_address + 1], discovered, postorder)
+        build_cfg(basic_blocks, basic_blocks[current.end_address + 1], function, discovered, postorder)
 
     postorder.append(current.start_address)
 
@@ -363,3 +379,28 @@ def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[
             return True
 
     return False
+
+def find_affected_branches(tbexeclist, basic_blocks, fault_dict, hdf_path, target_address):
+    tbexeclist_max_pos = max(tbexeclist['pos'])
+    affected_branches = set()
+    for experiment in fault_dict[target_address]:
+        tbexeclist_fault = pandas.read_hdf(hdf_path, f'fault/{experiment}/tbexeclist')
+        if len(tbexeclist_fault) == 0:
+            # Should not happen unless the target address is already reached in the goldenrun
+            continue
+        tbexeclist_fault_min_pos = min(tbexeclist_fault['pos'])
+        if (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos:
+            print('[WARNING]: Execution traces of the goldenrun and the experiment do not overlap. Was the ring buffer enabled in ARCHIE?')
+        affected_bb = tbexeclist[tbexeclist['pos'] == tbexeclist_fault_min_pos - 1]['tb'] # Last basic block in trace before diversion from goldenrun
+        try:
+            instructions = basic_blocks[affected_bb.iloc[0]].instructions
+        except KeyError:
+            # Basic block not found. The tbexeclist contains addresses of QEMU's translation blocks. These are blocks of code which are translated by QEMU's tcg.
+            # In most cases they are identical to the basic blocks. On some occassions QEMU will however split up basic blocks into multiple translation blocks,
+            # which is why we need to look for the next best basic block here in that case.
+            affected_bb = max(list(filter(lambda bb_start: bb_start < affected_bb.iloc[0], basic_blocks.keys())))
+            instructions = basic_blocks[affected_bb].instructions
+        if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
+            affected_branches.add(max(instructions))
+
+    return affected_branches
