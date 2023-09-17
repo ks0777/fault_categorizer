@@ -1,3 +1,17 @@
+# Copyright (c) 2023 Kevin Schneider
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 
 class BasicBlock:
     def __init__(self, start_address, end_address, instructions):
@@ -57,7 +71,7 @@ class CFG:
 
     def _build_cfg(self, current, callee=None):
         if current.start_address in self.discovered:
-            #print(f'already found instruction at {hex(current.start_address)}')
+            # print(f'already found instruction at {hex(current.start_address)}')
             return
 
         current.discovered_index = len(self.discovered)
@@ -84,8 +98,12 @@ class CFG:
         elif OpCode.RETURN == last_op.opcode:
             pass
         elif OpCode.CALL == last_op.opcode:
-            function = util.find_function_by_address(self._elf, last_op.inputs[0].offset)
-            ops = util.extract_pcode_from_elf(self._elf, function.target_address, function.end_address)
+            function = util.find_function_by_address(
+                self._elf, last_op.inputs[0].offset
+            )
+            ops = util.extract_pcode_from_elf(
+                self._elf, function.target_address, function.end_address
+            )
             self._find_basic_blocks(ops, function.start_address, function.end_address)
             successor = self.basic_blocks[last_op.inputs[0].offset]
             successor.called_by = current
@@ -99,4 +117,3 @@ class CFG:
             self.build_cfg(basic_blocks[current.end_address + 1])
 
         self.postorder.append(current.start_address)
-

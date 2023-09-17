@@ -1,5 +1,20 @@
+# Copyright (c) 2023 Kevin Schneider
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from util import FaultCategory
 from ite import IfThen, IfThenElse
+
 
 def get_countermeasure(report, ring_buffer_enabled):
     if report.category == FaultCategory.CFI_1:
@@ -29,7 +44,7 @@ def get_countermeasure(report, ring_buffer_enabled):
             return f"The faulted instruction {'MIGHT have affected' if ring_buffer_enabled else 'affects'} a conditional branch which is part of an if-then construct. It likely directly affects the condition check of a single construct. Harden this code by adding redundant checks of the condition."
         else:
             return f"The faulted instruction {'MIGHT have affected' if ring_buffer_enabled else 'affects'} a conditional branch which is part of an if-then-else construct. It likely directly affects the condition check of a single construct. Harden this code by changing the order of the then and else blocks and by adding redundant checks of the condition."
-    
+
     if report.category == FaultCategory.MISC_BRANCH:
         return "The faulted instruction is an unconditional branch which probably does not belong to an if-then-else construct. Skipping this instruction alters the control flow of the program in a way which is unpredictable with the source code alone. Consequently, there is no straight-forward fix on the source code for this vulnerability. If this specific part of the firmware is written in Assembly, duplicating the branch instruction is sufficient as a mitigation. In any other case it might be sufficient to restructure the affected part of the firmware either through direct modifications of the source code or through compiler annotations."
 
@@ -40,23 +55,23 @@ def get_countermeasure(report, ring_buffer_enabled):
         return f"The faulted instruction {'MIGHT have affected' if ring_buffer_enabled else 'affected'} {'some conditional branches which are' if report.affected_branches and len(report.affected_branches) > 1 else 'a conditional branch which is'} part of one or multiple if-then-(else) constructs. The fault does likely not directly affect the condition check of a specific construct which means that the cause of the fault is unrelated to the identified constructs. Hardening this code against this fault in the source code is not straight-forward since its effects are complex and require understanding of the code. In general introducing redundancy to the code can fix this vulnerability, however this redundancy needs to be as fine-grained as possible in order to keep the perfomance impact small. If applicable however, the best solution is to design the program in a way that interventions during such computations will generate invalid results. This can for example be achieved by using complex constants for boolean values instead of the usual implementation where every value except 0 maps to True, or by using whitelists instead of blacklists etc."
 
     if report.category == FaultCategory.UNKNOWN:
-        return "Unable to detect how the faulted instruction influences the control flow."
+        return (
+            "Unable to detect how the faulted instruction influences the control flow."
+        )
+
 
 def get_rules():
     return [
         {
-            'id': 'CFI_1',
-            'name': 'Control Flow Integrity',
-            'shortDescription': {
-                'text': 'Violation of control-flow integrity possible'
+            "id": "CFI_1",
+            "name": "Control Flow Integrity",
+            "shortDescription": {
+                "text": "Violation of control-flow integrity possible"
             },
-            'fullDescription': {
-                'text': 'Lorem ipsum dolir sit amet consetutor'
-            },
-            'help': {
-                'text': '',
-                'markdown':
-"""\
+            "fullDescription": {"text": "Lorem ipsum dolir sit amet consetutor"},
+            "help": {
+                "text": "",
+                "markdown": """\
 # Control Flow Integrity
 ## Fault Description
 The faulted instruction is a function call. The fault causes the execution of the function to be fully skipped without causing any side effects.
@@ -66,7 +81,7 @@ Harden this code by implementing a global counter that is saved locally and incr
 
 ## Implementation
 Use the `FIH_CALL(f, ret, ...)` macro from the hardening header file to call the function and use the `FIH_RET(ret)` macro inside that function to return from it."
-"""
-            }
+""",
+            },
         }
     ]

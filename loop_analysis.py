@@ -1,7 +1,41 @@
+# Copyright (c) 2015, The Regents of the University of California
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import networkx as nx
 
+
 class Loop:
-    def __init__(self, entry, entry_edges, break_edges, continue_edges, body_nodes, graph, subloops):
+    def __init__(
+        self,
+        entry,
+        entry_edges,
+        break_edges,
+        continue_edges,
+        body_nodes,
+        graph,
+        subloops,
+    ):
         self.entry = entry
         self.entry_edges = entry_edges
         self.break_edges = break_edges
@@ -20,8 +54,12 @@ class Loop:
                     break
 
     def __repr__(self):
-        s = "<Loop @ %s, %d blocks>" % (hex(self.entry.start_address), len(self.body_nodes))
+        s = "<Loop @ %s, %d blocks>" % (
+            hex(self.entry.start_address),
+            len(self.body_nodes),
+        )
         return s
+
 
 class LoopFinder:
     """
@@ -65,7 +103,11 @@ class LoopFinder:
             for pred_node in bigg.predecessors(node):
                 if pred_node not in loop_body_nodes:
                     if entry_node is not None and entry_node != node:
-                        print("Bad loop: more than one entry point (%s, %s)", entry_node, node)
+                        print(
+                            "Bad loop: more than one entry point (%s, %s)",
+                            entry_node,
+                            node,
+                        )
                         return None, []
                     entry_node = node
                     entry_edges.append((pred_node, node))
@@ -76,7 +118,10 @@ class LoopFinder:
                     subg.add_edge(node, succ_node)
         if entry_node is None:
             entry_node = min(loop_body_nodes, key=lambda n: n.addr)
-            print("Couldn't find entry point, assuming it's the first by address (%s)", entry_node)
+            print(
+                "Couldn't find entry point, assuming it's the first by address (%s)",
+                entry_node,
+            )
 
         acyclic_subg = subg.copy()
         for pred_node in subg.predecessors(entry_node):
@@ -101,7 +146,9 @@ class LoopFinder:
                         if entry_edge in removed_entries:
                             subg.add_edge(removed_entries[entry_edge], subloop)
                             try:
-                                subg.remove_edge(removed_entries[entry_edge], entry_edge[1])
+                                subg.remove_edge(
+                                    removed_entries[entry_edge], entry_edge[1]
+                                )
                             except nx.nxError:
                                 pass
                         else:
@@ -116,7 +163,9 @@ class LoopFinder:
                         if exit_edge in removed_entries:
                             subg.add_edge(subloop, removed_entries[exit_edge])
                             try:
-                                subg.remove_edge(exit_edge[0], removed_entries[exit_edge])
+                                subg.remove_edge(
+                                    exit_edge[0], removed_entries[exit_edge]
+                                )
                             except nx.nxError:
                                 pass
                         else:
@@ -129,7 +178,15 @@ class LoopFinder:
                     for nodes in nx.weakly_connected_components(subg)
                 )
                 subg = next(filter(lambda g: entry_node in g.nodes(), _subgraphs))
-        me = Loop(entry_node, entry_edges, break_edges, continue_edges, loop_body_nodes, subg, tops[:])
+        me = Loop(
+            entry_node,
+            entry_edges,
+            break_edges,
+            continue_edges,
+            loop_body_nodes,
+            subg,
+            tops[:],
+        )
         return me, [me] + alls
 
     def _parse_loops_from_graph(self, graph: nx.DiGraph):
@@ -144,7 +201,8 @@ class LoopFinder:
         outall = []
         subg: nx.DiGraph
         for subg in (
-            nx.induced_subgraph(graph, nodes).copy() for nodes in nx.strongly_connected_components(graph)
+            nx.induced_subgraph(graph, nodes).copy()
+            for nodes in nx.strongly_connected_components(graph)
         ):
             if len(subg.nodes()) == 1:
                 if len(list(subg.successors(list(subg.nodes())[0]))) == 0:
@@ -154,4 +212,3 @@ class LoopFinder:
                 outall += allloops
                 outtop.append(thisloop)
         return outtop, outall
-

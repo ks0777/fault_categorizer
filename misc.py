@@ -1,11 +1,27 @@
+# Copyright (c) 2023 Kevin Schneider
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import util
 from pypcode.pypcode_native import OpCode as OpCode
+
 
 def check_branch(instructions, target_address):
     ops = instructions[target_address]
 
     if ops[-1].opcode == OpCode.BRANCH:
         return util.FaultReport(target_address, util.FaultCategory.MISC_BRANCH)
+
 
 def check_branch_intervention(report, instructions, target_address):
     related_constructs = list(report.related_constructs.values())
@@ -29,4 +45,8 @@ def check_branch_intervention(report, instructions, target_address):
     if any(op.opcode == OpCode.STORE for op in ops):
         return util.FaultReport(target_address, util.FaultCategory.MISC_STORE)
 
-    return util.FaultReport(target_address, util.FaultCategory.MISC, affected_branches=report.affected_branches)
+    return util.FaultReport(
+        target_address,
+        util.FaultCategory.MISC,
+        affected_branches=report.affected_branches,
+    )
