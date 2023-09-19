@@ -70,7 +70,7 @@
     markdown: |
       # Control Flow Integrity
       ## Fault Description
-      The faulted instruction is an uncodtional branch at the end of a function. The fault causes the execution of instructions that follow the branch instruction reaching a completely unrelated function that happens to be located right after the current function in memory.
+      The faulted instruction is an uncondtional branch at the end of a function. The fault causes the execution of instructions that follow the branch instruction reaching a completely unrelated function that happens to be located right after the current function in memory.
 
       ## Mitigation
       An obvious solution to this problem would be the duplication of the branch instruction. However, this is only easily realized if the source code is written in Assembly. Achieving this in a high-level language is generally not possible. A branch instruction at the end of a function is likely the result of heavy optimizations and consequently not easily controllable in the source code.
@@ -80,7 +80,41 @@
       To harden this code either try to reorder the functions in the source code or use the `FIH_FUNCTION_BARRIER` macro which generates a function that acts as a barrier between the two affected functions. It is a simple dummy function that triggers a panic when called. However, this mitigation only works if the compiler respects the given order of the functions.
 
 - id: LI_1,
-  name: Control Flow Integrity,
+  name: Loop Integrity,
+  shortDescription:
+    text: Violation of loop integrity possible
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Loop Integrity
+      ## Fault Description
+      The faulted instruction is a (conditional) branch that can be seen as part an entry edge to a loop. The fault may allow an attacker to:
+        - skip the loop entirely 
+        - enter the loop regardless of the loop condition
+
+      ## Mitigation
+    Harden this code by adding redundancy to the loop condition. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will generate something like this:
+      ```
+        li      a3,9
+        li      a4,9
+        lw      a5,12(sp)
+        blt     a3,a5,80000140 <loop_end>
+        lw      a5,12(sp)
+        blt     a4,a5,80000140 <loop_end>
+      loop_body:
+        ...
+      loop_end:
+        ...
+      ```
+      In this example the loop will be skipped exactly iff the condition is met even if one of the conditional branches is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once. In practice such a fault will likely most often be used to skip the entire loop. Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+
+      ## Implementation
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+
+- id: LI_2,
+  name: Loop Integrity,
   shortDescription:
     text: Violation of loop integrity possible
   fullDescription:
@@ -90,16 +124,16 @@
     markdown: |
       # Control Flow Integrity
       ## Fault Description
-      The faulted instruction is a conditional branch that belongs to the logic of a loop. The fault may allow an attacker to:
+      The faulted instruction is a (conditional) branch that is used to break from or to continue a loop. The fault may allow an attacker to:
         - break from loop body early
-        - execute an additional iteration of the loop body 
-      regardless of the exit condition.
+        - execute an additional iteration of the loop body after the exit condition is met
 
       ## Mitigation
-    Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met. The first option might be required to secure the loop against other faults where the branch instruction is only directed indirectly through a fault in the condition check. However, this mitigation needs to be implemented carefully to be effective. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
+    Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met. The first option might be required to secure the loop against other faults where the branch instruction is only affected indirectly through a fault in the condition check. However, this mitigation needs to be implemented carefully to be effective. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
       ```
       li      a3,9
       li      a4,9
+      lw      a5,12(sp)
       blt     a3,a5,80000140 <loop_body>
       lw      a5,12(sp)
       sext.w  a5,a5
@@ -108,4 +142,84 @@
       In this example the loop will exit exactly iff the condition is met even if one of the conditional branches is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop. Securing the condition with redundancy is however likely needed to secure the loop against fault attacks on the condition check itself. A well secured loop thus has both redundancy of the check and inside of the check itself.
 
       ## Implementation
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively (or better additionally) add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+
+- id: LI_3,
+  name: Loop Integrity,
+  shortDescription:
+    text: Violation of loop integrity possible
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Integrity
+      ## Fault Description
+      The faulted instruction affects a conditional branch that is used to enter a loop. The fault may allow an attacker to:
+        - skip the loop entirely 
+        - enter the loop regardless of the loop condition
+
+      ## Mitigation
+    Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met. The first mitigation needs to be implemented carefully to be effective, since compiler optimizations may remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
+      ```
+        li      a3,9
+        li      a4,9
+        lw      a5,12(sp)
+        blt     a3,a5,80000140 <loop_end>
+        lw      a5,12(sp)
+        blt     a4,a5,80000140 <loop_end>
+      loop_body:
+        ...
+      loop_end:
+        ...
+      ```
+      In this example the loop will be skipped exactly iff the condition is met even if e.g. one of the `li` instructions is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once. In practice such a fault will likely most often be used to skip the entire loop. Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+
+      ## Implementation
       Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+
+- id: LI_4,
+  name: Loop Integrity,
+  shortDescription:
+    text: Violation of loop integrity possible
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Integrity
+      ## Fault Description
+      The faulted instruction affects a conditional branch that is used to break from or to continue a loop. The fault may allow an attacker to:
+        - break from the loop body early 
+        - execute any iteration of the loop body twice
+
+      ## Mitigation
+      To protect the code against attacks that break from the loop body early by adding redundancy to the loop condition or by adding a check behind the loop that confirms that the loop exit condition is met. The first mitigation needs to be implemented carefully to be effective, since compiler optimizations may remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
+      ```
+      loop_body:
+        ...
+        li      a3,9
+        li      a4,9
+        lw      a5,12(sp)
+        blt     a5,a3,80000140 <loop_body>
+        lw      a5,12(sp)
+        blt     a5,a4,80000140 <loop_body>
+      loop_end:
+        ...
+      ```
+      In this example the loop will be continue exactly iff the condition is met even if e.g. one of the `li` instructions is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. Both of these mitigations will however not protect the code against an attack where an additional iteration of the loop body is executed. These attacks directly influence the loop counter (e.g. by preventing the updated value from being saved) and can thus only be mitigated in the loop body itself, by making the operations redundant.
+      ## Implementation
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+    If necessary secure the update of the loop counter by making it redundant. For this to work everything, including loading, calculations, and storing needs to be redundant or checked. This could look like this in the source code:
+      ```
+      for (i=0; i<3;) {
+        // body
+
+	volatile int _i = i + 1; 
+	i = i + 1;
+	if (i != _i)
+	    _hang();
+      } 
+
+      ```
+

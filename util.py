@@ -60,6 +60,8 @@ class FaultCategory(Enum):
     ITE_1 = 10
     ITE_2 = 11
     ITE_3 = 12
+    ITE_4 = 21
+    ITE_5 = 22
     MISC_LOAD = 13
     MISC_STORE = 14
     MISC_BRANCH = 15
@@ -495,4 +497,4 @@ def find_affected_branches(
         if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
             affected_branches.add(max(instructions))
 
-    return affected_branches
+    return list(affected_branches)

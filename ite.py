@@ -57,24 +57,28 @@ def identify_constructs(basic_blocks, function, postorder):
                 ],
                 key=lambda preds: len(preds),
             )
-            smallest_branch = all_preds[0]
             biggest_branch = all_preds[-1]
+            second_biggest_branch = all_preds[-2]
 
             # If the predecessor branch with the most nodes does not contain the nodes of every other predecessor branch except the smallest one, there is no if-then(-else) construct, perhaps a switch statement.
             if set().union(*all_preds[1:]) != biggest_branch:
                 continue
 
             # Intersection returns all blocks before the body. The last block is the condition
-            pre_body_blocks = smallest_branch & biggest_branch
+            pre_body_blocks = second_biggest_branch & biggest_branch
 
-            condition_blocks = [sorted(pre_body_blocks)[-1]]
+            condition_blocks = [
+                sorted(
+                    pre_body_blocks, key=lambda bb: postorder.index(bb.start_address)
+                )[0]
+            ]
 
             # If condition is already part of an IT(E) we identified it cant be part of another one with a smaller scope
             if condition_blocks[0] in all_condition_blocks:
                 continue
 
             # If the shortest path is a subset of the longest path we do not have an else part
-            if len(smallest_branch - biggest_branch) == 0:
+            if len(second_biggest_branch - biggest_branch) == 0:
                 then_blocks = biggest_branch - pre_body_blocks
                 if len(then_blocks) == 0:
                     continue
@@ -83,9 +87,8 @@ def identify_constructs(basic_blocks, function, postorder):
                 # Follow up sequence of blocks that only have a single predecessor and have the body of the construct as a successor.
                 # Needed to make sure conditions consisting of multiple parts that are connected through logical operations are also inluded.
                 head = condition_blocks[0]
-                while (
-                    len(head.predecessors) == 1
-                    and then_head in head.predecessors[0].successors
+                while len(head.predecessors) == 1 and start_address in map(
+                    lambda bb: bb.start_address, head.predecessors[0].successors
                 ):
                     head = head.predecessors[0]
                     condition_blocks.append(head)
@@ -96,7 +99,7 @@ def identify_constructs(basic_blocks, function, postorder):
             else:
                 # then and else might be mixed up but it does not matter for this purpose
                 then_blocks = biggest_branch - pre_body_blocks
-                else_blocks = smallest_branch - pre_body_blocks
+                else_blocks = second_biggest_branch - pre_body_blocks
                 then_head = sorted(then_blocks)[0]
                 else_head = sorted(else_blocks)[0]
 
@@ -191,7 +194,9 @@ def check_ite(
         related_construct = find_related_construct(constructs, target_address)
         return util.FaultReport(
             target_address,
-            util.FaultCategory.ITE_2,
+            util.FaultCategory.ITE_2
+            if isinstance(related_construct, IfThen)
+            else util.FaultCategory.ITE_3,
             related_constructs={target_address: related_construct},
         )  # We skipped the conditional branch and executed secured code instead of the insecure default
 
@@ -199,7 +204,7 @@ def check_ite(
 
     fault_report = util.FaultReport(
         target_address,
-        util.FaultCategory.ITE_3,
+        util.FaultCategory.UNKNOWN,
         affected_branches=[],
         related_constructs=dict(),
     )
@@ -218,5 +223,14 @@ def check_ite(
                 fault_report.related_constructs[node.insn_addr] = related_construct
 
     if len(fault_report.affected_branches) > 0:
+        if len(set(fault_report.related_constructs.values())) == 1:
+            fault_report.category = (
+                util.FaultCategory.ITE_4
+                if isinstance(
+                    fault_report.related_constructs[fault_report.affected_branches[0]],
+                    IfThen,
+                )
+                else util.FaultCategory.ITE_5
+            )
         return fault_report
     return None

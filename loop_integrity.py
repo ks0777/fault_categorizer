@@ -27,13 +27,9 @@ def check_li(basic_blocks, instructions, ddg, affected_branches, target_address)
             ):
                 return util.FaultReport(target_address, util.FaultCategory.LI_1)
             if target_address in map(
-                lambda edge: max(edge[0].instructions), loop.continue_edges
+                lambda edge: max(edge[0].instructions), loop.continue_edges + loop.break_edges
             ):
                 return util.FaultReport(target_address, util.FaultCategory.LI_2)
-            if target_address in map(
-                lambda edge: max(edge[0].instructions), loop.break_edges
-            ):
-                return util.FaultReport(target_address, util.FaultCategory.LI_3)
         return None
 
     if affected_branches == None:
@@ -59,20 +55,14 @@ def check_li(basic_blocks, instructions, ddg, affected_branches, target_address)
             if address in map(lambda edge: max(edge[0].instructions), loop.entry_edges):
                 return util.FaultReport(
                     target_address,
-                    util.FaultCategory.LI_4,
+                    util.FaultCategory.LI_3,
                     affected_branches=affected_branches,
                 )
             if address in map(
-                lambda edge: max(edge[0].instructions), loop.continue_edges
+                lambda edge: max(edge[0].instructions), loop.continue_edges + loop.break_edges
             ):
                 return util.FaultReport(
                     target_address,
-                    util.FaultCategory.LI_5,
-                    affected_branches=affected_branches,
-                )
-            if address in map(lambda edge: max(edge[0].instructions), loop.break_edges):
-                return util.FaultReport(
-                    target_address,
-                    util.FaultCategory.LI_6,
+                    util.FaultCategory.LI_4,
                     affected_branches=affected_branches,
                 )

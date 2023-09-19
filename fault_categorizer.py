@@ -264,7 +264,7 @@ def categorize_faults(args):
                 target_address,
             )
         ) != None:
-            if report.category == util.FaultCategory.ITE_3:
+            if report.category == util.FaultCategory.UNKNOWN:
                 report = check_branch_intervention(report, instructions, target_address)
             fault_reports.append(report)
             continue
