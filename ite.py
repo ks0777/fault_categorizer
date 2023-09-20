@@ -181,24 +181,53 @@ def check_ite(
 ):
     constructs = identify_constructs(basic_blocks, function, postorder)
 
+    instruction_addresses = sorted(instructions.keys())
+    next_instruction_addr = instruction_addresses[
+        instruction_addresses.index(target_address) + 1
+    ]
+
     last_op = instructions[target_address][-1]
     if last_op.opcode == OpCode.BRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        if related_construct != None and isinstance(related_construct, IfThenElse):
-            return util.FaultReport(
-                target_address, util.FaultCategory.ITE_1
-            )  # We skipped a branch instruction in the ITE statement and wrongfully executed the else part.
-        return None
+        if related_construct == None or isinstance(related_construct, IfThen):
+            return None
+
+        # Check if the control flow stays inside the construct after skipping the branch
+        if any(
+            map(
+                lambda bb: bb.start_address <= target_address
+                and bb.end_address >= target_address,
+                related_construct.then_blocks,
+            )
+        ):
+            if next_instruction_addr in map(
+                lambda bb: bb.start_address, related_construct.else_blocks
+            ):
+                return util.FaultReport(target_address, util.FaultCategory.ITE_1)
+        else:
+            if next_instruction_addr in map(
+                lambda bb: bb.start_address, related_construct.then_blocks
+            ):
+                return util.FaultReport(target_address, util.FaultCategory.ITE_1)
 
     if last_op.opcode == OpCode.CBRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        return util.FaultReport(
-            target_address,
-            util.FaultCategory.ITE_2
-            if isinstance(related_construct, IfThen)
-            else util.FaultCategory.ITE_3,
-            related_constructs={target_address: related_construct},
-        )  # We skipped the conditional branch and executed secured code instead of the insecure default
+        # Check if the control flow stays inside the construct after skipping the branch
+        if next_instruction_addr in map(
+            lambda bb: bb.start_address,
+            related_construct.then_blocks.union(
+                related_construct.else_blocks
+                if isinstance(related_construct, IfThenElse)
+                else []
+            ),
+        ):
+            return util.FaultReport(
+                target_address,
+                util.FaultCategory.ITE_2
+                if isinstance(related_construct, IfThen)
+                else util.FaultCategory.ITE_3,
+                related_constructs={target_address: related_construct},
+            )  # We skipped the conditional branch and executed secured code instead of the insecure default
 
     dependents = ddg.find_dependents(target_address)
 

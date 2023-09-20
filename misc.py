@@ -19,7 +19,7 @@ from pypcode.pypcode_native import OpCode as OpCode
 def check_branch(instructions, target_address):
     ops = instructions[target_address]
 
-    if ops[-1].opcode == OpCode.BRANCH:
+    if ops[-1].opcode in [OpCode.BRANCH, OpCode.CBRANCH]:
         return util.FaultReport(target_address, util.FaultCategory.MISC_BRANCH)
 
 
