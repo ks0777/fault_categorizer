@@ -401,3 +401,92 @@
 
       ## Implementation
       Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the check in a way that each instruction the redundant check is now duplicated. Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure. Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+
+
+- id: MISC_BRANCH,
+  name: Misc,
+  shortDescription:
+    text: Violation of control flow
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Violation
+      ## Fault Description
+      The faulted construction is an (unconditional) branch that does not belong to a loop or If-Then(-Else) construct. Such a fault allows an attacker to possibly reach any part in the current function, depending on how the compiler assembled the source code. This fault most often occurs when using performance-oriented optimization profiles as it is the result of reordering efforts that try to minimize the amount of branches taken during execution.
+
+      ## Mitigation
+      Hardening the code against this fault is hard since it is not a weakness in the source code unless it is written in Assembly. Slightly restructuring the function might solve this problem, however this is neither guranteed to work nor is it very reliable. Since this problem is likely the result of an optimization, turning off the optimization, or choosing a less aggresive profile might be the best solution.
+
+      ## Implementation
+      Most compilers support the specification of optimzation profiles on a function level. GCC provides an attribute for this called `optimize`. Use it to reduce the optimization level and verify that the change was effective:
+      ```
+      int __attribute__((optimize("O0"))) main(void) {
+        ...
+      }
+      ```
+
+- id: MISC_LOAD,
+  name: Misc,
+  shortDescription:
+    text: Violation of control flow through prevention of a LOAD operation
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Violation
+      ## Fault Description
+      The faulted instruction contains a *load* operation, that possibly affects the control flow of multiple if-then-(else) constructs. This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
+
+      ## Mitigation
+      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions. Harden this code by performing the faulted *load* operation redundantly or by verifying that that the load operarion was successful through a check.
+
+      ## Implementation
+      Use the `FIH_SET(x, y)` macro to load the affected value from memory. The macro performs a check after the load operation to verify that the loaded value is equal to the one in memory.
+
+
+- id: MISC_STORE,
+  name: Misc,
+  shortDescription:
+    text: Violation of control flow through prevention of a STORE operation
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Violation
+      ## Fault Description
+      The faulted instruction contains a *store* operation, that possibly affects the control flow of multiple if-then-(else) constructs. This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
+
+      ## Mitigation
+      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions. Harden this code by performing the faulted *store* operation redundantly or by verifying that that the store operarion was successful through a check.
+
+      ## Implementation
+      Use the `FIH_SET(x, y)` macro to store the affected value in memory. The macro performs a check after the store operation to verify that the stored value in memory is equal to the one in the register.
+
+- id: MISC,
+  name: ,
+  shortDescription:
+    text: Violation of control flow through prevention of a LOAD operation
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: ""
+    markdown: |
+      # Control Flow Violation
+      ## Fault Description
+      The faulted instruction possibly affects multiple if-then-(else) constructs. The fault does not directly affect the condition check of a specific construct which means that the cause of the fault is unrelated to the identified constructs.
+
+      ## Mitigation
+      Hardening this code against this fault in the source code is not straight-forward since its effects can be complex and require understanding of the code. In general introducing redundancy to the code can fix this vulnerability, however this redundancy needs to be as fine-grained as possible in order to keep the perfomance impact small. If this fault type appears often, it is an indicator of a poor high-level design. Take the calculation of a hash over some buffer for example. If the hash is compared to values in a blacklist it is trivial to find a fault in the calculation that generates a hash value that passes the check. If the value is however compared to values in a whitelist a fault would need to be chosen extremely carefully to generate a value that exists in the whitelist.
+
+- id: UNKNOWN,
+  name: ,
+  shortDescription:
+    text: Violation of control flow with unknown cause
+  fullDescription:
+    text: Lorem ipsum dolir sit amet consetutor
+  help: 
+    text: "idk"
