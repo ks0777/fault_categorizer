@@ -18,16 +18,16 @@ from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
 from loop_analysis import LoopFinder
 
 
-def check_li(basic_blocks, instructions, ddg, affected_branches, target_address):
+def check_li(basic_blocks, instruction_ops, ddg, affected_branches, target_address):
     loop_finder = LoopFinder(basic_blocks)
-    if instructions[target_address][-1].opcode in [OpCode.CBRANCH, OpCode.BRANCH]:
+    if instruction_ops[target_address][-1].opcode in [OpCode.CBRANCH, OpCode.BRANCH]:
         for loop in loop_finder.loops:
             if target_address in map(
-                lambda edge: max(edge[0].instructions), loop.entry_edges
+                lambda edge: max(edge[0].instruction_ops), loop.entry_edges
             ):
                 return util.FaultReport(target_address, util.FaultCategory.LI_1)
             if target_address in map(
-                lambda edge: max(edge[0].instructions),
+                lambda edge: max(edge[0].instruction_ops),
                 loop.continue_edges + loop.break_edges,
             ):
                 return util.FaultReport(target_address, util.FaultCategory.LI_2)
@@ -39,7 +39,7 @@ def check_li(basic_blocks, instructions, ddg, affected_branches, target_address)
             map(
                 lambda node: node.insn_addr,
                 filter(
-                    lambda node: instructions[node.insn_addr][-1].opcode
+                    lambda node: instruction_ops[node.insn_addr][-1].opcode
                     == OpCode.CBRANCH,
                     dependents,
                 ),
@@ -53,14 +53,16 @@ def check_li(basic_blocks, instructions, ddg, affected_branches, target_address)
 
     for address in affected_branches:
         for loop in loop_finder.loops:
-            if address in map(lambda edge: max(edge[0].instructions), loop.entry_edges):
+            if address in map(
+                lambda edge: max(edge[0].instruction_ops), loop.entry_edges
+            ):
                 return util.FaultReport(
                     target_address,
                     util.FaultCategory.LI_3,
                     affected_branches=affected_branches,
                 )
             if address in map(
-                lambda edge: max(edge[0].instructions),
+                lambda edge: max(edge[0].instruction_ops),
                 loop.continue_edges + loop.break_edges,
             ):
                 return util.FaultReport(

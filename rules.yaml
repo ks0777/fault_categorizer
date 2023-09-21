@@ -1,492 +1,728 @@
-- id: CFI_1,
-  name: Control Flow Integrity,
+- id: CFI_1
+  name: ControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control-flow integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+      
       ## Fault Description
-      The faulted instruction is a function call. The fault causes the execution of the function to be fully skipped without causing any side effects.
+      
+      The faulted instruction is a function call.
+      The fault causes the execution of the function to be fully skipped without causing any side effects.
+
 
       ## Mitigation
-      Harden this code by implementing a global counter that is saved locally and increased before each function call that should be protected. Every return instruction in that function needs to decrease that counter again before being executed. After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality. If this check fails, a panic needs to be triggered.
+      
+      Harden this code by implementing a global counter that is saved locally and increased before each function call that should be protected.
+      Every return instruction in that function needs to decrease that counter again before being executed.
+      After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality.
+      If this check fails, a panic needs to be triggered.
+
 
       ## Implementation
+      
       Use the `FIH_CALL(f, ret, ...)` macro from the hardening header file to call the function and use the `FIH_RET(ret)` macro inside that function to return from it.
+      "
 
-- id: CFI_2,
-  name: Control Flow Integrity,
+- id: CFI_2
+  name: ControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control-flow integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is a function return at the end of a function. The fault causes the execution of instructions that follow the return statetment reaching a completely unrelated function that happens to be located right after the skipped return instruction in memory.
+      
+      The faulted instruction is a function return at the end of a function.
+      The fault causes the execution of instructions that follow the return statetment reaching a completely unrelated function that happens to be located right after the skipped return instruction in memory.
+
 
       ## Mitigation
-      An obvious solution to this problem would be the duplication of the return instruction. However, this is only easily realized if the source code is written in Assembly. Achieving this in a high-level language is possible but highly-dependent on the compiler and its configuration. An example for such a solution is provided in the hardening Macros. 
-      A simple solution to this problem could be to reorder the functions in the source code while hoping that the compiler respects this order. However, if this reordering is not done carefully it might just cause the problem to reoccur in a different place. Another option would be to introduce a dummy function in between those functions. Both of the options, however are subject to the compiler and how it decides to order the function.
+
+      An obvious solution to this problem would be the duplication of the return instruction.
+      However, this is only easily realized if the source code is written in Assembly.
+      Achieving this in a high-level language is possible but highly-dependent on the compiler and its configuration.
+      An example for such a solution is provided in the hardening Macros.
+      
+
+      A simple solution to this problem could be to reorder the functions in the source code while hoping that the compiler respects this order.
+      However, if this reordering is not done carefully it might just cause the problem to reoccur in a different place.
+      Another option would be to introduce a dummy function in between those functions.
+      Both of the options, however are subject to the compiler and how it decides to order the function.
+
 
       ## Implementation
-      The `FIH_RET_3(ret)` macro might be able to mitigate the vulnerability (Use the `FIH_RET_2(ret)` macro if the function is already secured with the `FIH_CALL` macro). It uses a volatile variable to decide whether to execute the return statement or not. The condition for this is always true but it prevents the compiler from eliminating the code after the return statement which is followed by a call to the panic function. The compiler is also advised to construct the if-then such that the panic call follows the body of the construct. Depending on the optimization level and specific compiler and version this might however not happen. 
-      Alternatively the `FIH_FUNCTION_BARRIER` macro can be used between the two affected functions which will add a dummy function that causes a panic when called. This function acts as a barrier between the two function and prevent the attack if the compiler respects the given order of the functions.
+      
+      The `FIH_RET_3(ret)` macro might be able to mitigate the vulnerability (Use the `FIH_RET_2(ret)` macro if the function is already secured with the `FIH_CALL` macro).
+      It uses a volatile variable to decide whether to execute the return statement or not.
+      The condition for this is always true but it prevents the compiler from eliminating the code after the return statement which is followed by a call to the panic function.
+      The compiler is also advised to construct the if-then such that the panic call follows the body of the construct.
+      Depending on the optimization level and specific compiler and version this might however not happen.
+      
+      Alternatively the `FIH_FUNCTION_BARRIER` macro can be used between the two affected functions which will add a dummy function that causes a panic when called.
+      This function acts as a barrier between the two function and prevent the attack if the compiler respects the given order of the functions.
+      "
 
-- id: CFI_3,
-  name: Control Flow Integrity,
+- id: CFI_3
+  name: ControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control-flow integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+      
       ## Fault Description
-      The faulted instruction is a function return in the middle of a a function. The fault causes the execution of instructions that follow the return statement which may allow an attacker to reach other parts of the current function.
+
+      The faulted instruction is a function return in the middle of a a function.
+      The fault causes the execution of instructions that follow the return statement which may allow an attacker to reach other parts of the current function.
+
 
       ## Mitigation
-      An obvious solution to this problem would be the duplication of the return instruction. However, this is only easily realized if the source code is written in Assembly. Achieving this in a high-level language is possible but highly-dependent on the compiler and its configuration. An example for such a solution is provided in the hardening Macros. An alternative would be to secure the whole function by implementing a global counter that is saved locally and increased before the function is called. Every return instruction in the function needs to decrease that counter again before being executed. After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality. If this check fails, a panic needs to be triggered.
-      Eventually the same, or another, return statement inside the function will be called which will again decrease the counter. In that case the counter would be decremented twice and a panic would be triggered after that function returns.
+
+      An obvious solution to this problem would be the duplication of the return instruction.
+      However, this is only easily realized if the source code is written in Assembly.
+      Achieving this in a high-level language is possible but highly-dependent on the compiler and its configuration.
+      An example for such a solution is provided in the hardening Macros.
+      An alternative would be to secure the whole function by implementing a global counter that is saved locally and increased before the function is called.
+      Every return instruction in the function needs to decrease that counter again before being executed.
+      After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality.
+      If this check fails, a panic needs to be triggered.
+      Eventually the same, or another, return statement inside the function will be called which will again decrease the counter.
+      In that case the counter would be decremented twice and a panic would be triggered after that function returns.
+
 
       ## Implementation
+
       Use the `FIH_CALL(f, ret, ...)` macro from the hardening header file for each call of the function and use the `FIH_RET(ret)` macro to return from it.
-      To detect the fault earlier than after the return from the current function, the `FIH_RET_2(ret)` macro might be helpful. It uses a volatile variable to decide whether to execute the return statement or not. The condition for this is always true but it prevents the compiler from eliminating the code after the return statement which is followed by a call to the panic function. The compiler is also advised to construct the if-then such that the panic call follows the body of the construct. Depending on the optimization level and specific compiler and version this might however not happen.
+      To detect the fault earlier than after the return from the current function, the `FIH_RET_2(ret)` macro might be helpful.
+      It uses a volatile variable to decide whether to execute the return statement or not.
+      The condition for this is always true but it prevents the compiler from eliminating the code after the return statement which is followed by a call to the panic function.
+      The compiler is also advised to construct the if-then such that the panic call follows the body of the construct.
+      Depending on the optimization level and specific compiler and version this might however not happen.
+      "
 
-- id: CFI_4,
-  name: Control Flow Integrity,
+- id: CFI_4
+  name: ControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control-flow integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is an jump at the end of a function. The fault causes the execution of instructions that follow the branch instruction reaching a completely unrelated function that happens to be located right after the current function in memory.
+
+      The faulted instruction is a jump at the end of a function.
+      The fault causes the execution of instructions that follow the branch instruction reaching a completely unrelated function that happens to be located right after the current function in memory.
+
 
       ## Mitigation
-      An obvious solution to this problem would be the duplication of the branch instruction. However, this is only easily realized if the source code is written in Assembly. Achieving this in a high-level language is generally not possible. A branch instruction at the end of a function is likely the result of heavy optimizations and consequently not easily controllable in the source code.
-      A simple solution to this problem could be to reorder the functions in the source code while hoping that the compiler respects this order. However, if this reordering is not done carefully it might just cause the problem to reoccur in a different place. Another option would be to introduce a dummy function in between those functions. Both of the options, however are subject to the compiler and how it decides to order the function.
+      
+      An obvious solution to this problem would be the duplication of the branch instruction.
+      However, this is only easily realized if the source code is written in Assembly.
+      Achieving this in a high-level language is generally not possible.
+      A branch instruction at the end of a function is likely the result of heavy optimizations and consequently not easily controllable in the source code.
+      A simple solution to this problem could be to reorder the functions in the source code while hoping that the compiler respects this order.
+      However, if this reordering is not done carefully it might just cause the problem to reoccur in a different place.
+      Another option would be to introduce a dummy function in between those functions.
+      Both of the options, however are subject to the compiler and how it decides to order the function.
+
 
       ## Implementation
-      To harden this code either try to reorder the functions in the source code or use the `FIH_FUNCTION_BARRIER` macro which generates a function that acts as a barrier between the two affected functions. It is a simple dummy function that triggers a panic when called. However, this mitigation only works if the compiler respects the given order of the functions.
+      
+      To harden this code either try to reorder the functions in the source code or use the `FIH_FUNCTION_BARRIER` macro which generates a function that acts as a barrier between the two affected functions.
+      It is a simple dummy function that triggers a panic when called.
+      However, this mitigation only works if the compiler respects the given order of the functions.
+      "
 
-- id: LI_1,
-  name: Loop Integrity,
+- id: LI_1
+  name: LoopIntegrityViolation
   shortDescription:
     text: Violation of loop integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Loop Integrity
+
       ## Fault Description
-      The faulted instruction is a (conditional) branch that can be seen as part an entry edge to a loop. The fault may allow an attacker to:
-        - skip the loop entirely 
-        - enter the loop regardless of the loop condition
+
+      The faulted instruction is a (conditional) branch that can be seen as part an entry edge to a loop.
+
+      The fault may allow an attacker to:\n
+      \_\_- skip the loop entirely\n
+      \_\_- enter the loop regardless of the loop condition\n
 
       ## Mitigation
-    Harden this code by adding redundancy to the loop condition. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will generate something like this:
-      ```
-        li      a3,9
-        li      a4,9
-        lw      a5,12(sp)
-        blt     a3,a5,80000140 <loop_end>
-        lw      a5,12(sp)
-        blt     a4,a5,80000140 <loop_end>
-      loop_body:
-        ...
-      loop_end:
-        ...
-      ```
-      In this example the loop will be skipped exactly iff the condition is met even if one of the conditional branches is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once. In practice such a fault will likely most often be used to skip the entire loop. Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+      
+      Harden this code by adding redundancy to the loop condition.
+      Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator.
+      Ideally the compiler will generate something like this:\n
+      ```\n
+      \_\_li      a3,9\n
+      \_\_li      a4,9\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a3,a5, <loop_end>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a4,a5, <loop_end>\n
+      loop_body:\n
+      \_\_...\n
+      loop_end:\n
+      \_\_...\n
+      ```\n
+
+      In this example the loop will be skipped exactly iff the condition is met even if one of the conditional branches is skipped.
+      The compiler does however not always generate such convenient constructs.
+      It is hence recommended to add an additional check of the loop condition after the loop instead.
+      This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once.
+      In practice such a fault will likely most often be used to skip the entire loop.
+      Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+
 
       ## Implementation
-      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
 
-- id: LI_2,
-  name: Loop Integrity,
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not.
+      Alternatively add redundancy to the loop condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches.
+      Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
+      "
+
+- id: LI_2
+  name: LoopIntegrityViolation
   shortDescription:
     text: Violation of loop integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is a (conditional) branch that is used to break from or to continue a loop. The fault may allow an attacker to:
-        - break from loop body early
-        - execute an additional iteration of the loop body after the exit condition is met
+
+      The faulted instruction is a (conditional) branch that is used to break from or to continue a loop.
+      
+      The fault may allow an attacker to:\n
+      \_\_- break from the loop body early\n
+      \_\_- execute an additional iteration of the loop body after the exit condition is met\n
 
       ## Mitigation
-    Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met. The first option might be required to secure the loop against other faults where the branch instruction is only affected indirectly through a fault in the condition check. However, this mitigation needs to be implemented carefully to be effective. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
-      ```
-      li      a3,9
-      li      a4,9
-      lw      a5,12(sp)
-      blt     a3,a5,80000140 <loop_body>
-      lw      a5,12(sp)
-      sext.w  a5,a5
-      blt     a4,a5,80000140 <loop_body>
-      ```
-      In this example the loop will exit exactly iff the condition is met even if one of the conditional branches is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop. Securing the condition with redundancy is however likely needed to secure the loop against fault attacks on the condition check itself. A well secured loop thus has both redundancy of the check and inside of the check itself.
+      
+      Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met.
+      The first option might be required to secure the loop against other faults where the branch instruction is only affected indirectly through a fault in the condition check.
+      However, this mitigation needs to be implemented carefully to be effective.
+      Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator.
+      Ideally the compiler will now generate something like this:\n
+      ```\n
+      li      a3,9\n
+      li      a4,9\n
+      lw      a5,12(sp)\n
+      blt     a3,a5, <loop_body>\n
+      lw      a5,12(sp)\n
+      sext.w  a5,a5\n
+      blt     a4,a5, <loop_body>\n
+      ```\n
+
+      In this example the loop will exit exactly iff the condition is met even if one of the conditional branches is skipped.
+      The compiler does however not always generate such convenient constructs.
+      It is hence recommended to add an additional check of the loop condition after the loop.
+      Securing the condition with redundancy is however likely needed to secure the loop against fault attacks on the condition check itself.
+      A well secured loop thus has both redundancy of the check and inside of the check itself.
+
 
       ## Implementation
-      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively (or better additionally) add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+      
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not.
+      Alternatively (or better additionally) add redundancy to the loop condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches.
+      Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
+      "
 
-- id: LI_3,
-  name: Loop Integrity,
+- id: LI_3
+  name: LoopIntegrityViolation
   shortDescription:
     text: Violation of loop integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction affects a conditional branch that is used to enter a loop. The fault may allow an attacker to:
-        - skip the loop entirely 
-        - enter the loop regardless of the loop condition
+
+      The faulted instruction affects a conditional branch that is used to enter a loop.
+      The fault may allow an attacker to:\n
+      \_\_- skip the loop entirely\n
+      \_\_- enter the loop regardless of the loop condition\n
 
       ## Mitigation
-    Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met. The first mitigation needs to be implemented carefully to be effective, since compiler optimizations might remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
+      
+      Harden this code either by adding redundancy to the loop condition or by adding a check behind the loop which confirms that the loop exit condition is met.
+      The first mitigation needs to be implemented carefully to be effective, since compiler optimizations might remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose.
+      Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator.
+      Ideally the compiler will now generate something like this:\n
+      ```\n
+      \_\_li      a3,9\n
+      \_\_li      a4,9\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a3,a5, <loop_end>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a4,a5, <loop_end>\n
+      loop_body:\n
+      \_\_...\n
+      loop_end:\n
+      \_\_...\n
       ```
-        li      a3,9
-        li      a4,9
-        lw      a5,12(sp)
-        blt     a3,a5,80000140 <loop_end>
-        lw      a5,12(sp)
-        blt     a4,a5,80000140 <loop_end>
-      loop_body:
-        ...
-      loop_end:
-        ...
-      ```
-      In this example the loop will be skipped exactly iff the condition is met even if e.g. one of the `li` instructions is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once. In practice such a fault will likely most often be used to skip the entire loop. Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+
+      In this example the loop will be skipped exactly iff the condition is met even if e.g.
+      one of the `li` instructions is skipped.
+      The compiler does however not always generate such convenient constructs.
+      It is hence recommended to add an additional check of the loop condition after the loop instead.
+      This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once.
+      In practice such a fault will likely most often be used to skip the entire loop.
+      Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+
 
       ## Implementation
-      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
+      
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not.
+      Alternatively add redundancy to the loop condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches.
+      Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
+      "
 
-- id: LI_4,
-  name: Loop Integrity,
+- id: LI_4
+  name: LoopIntegrityViolation
   shortDescription:
     text: Violation of loop integrity possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction affects a conditional branch that is used to break from or to continue a loop. The fault may allow an attacker to:
-        - break from the loop body early 
-        - execute any iteration of the loop body twice
+
+      The faulted instruction affects a conditional branch that is used to break from or to continue a loop.
+      The fault may allow an attacker to:\n
+      \_\_- break from the loop body early\n
+      \_\_- execute any iteration of the loop body twice
 
       ## Mitigation
-      To protect the code against attacks that break from the loop body early by adding redundancy to the loop condition or by adding a check behind the loop that confirms that the loop exit condition is met. The first mitigation needs to be implemented carefully to be effective, since compiler optimizations might remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose. Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator. Ideally the compiler will now generate something like this:
+      
+      To protect the code against attacks that break from the loop body early by adding redundancy to the loop condition or by adding a check behind the loop that confirms that the loop exit condition is met.
+      The first mitigation needs to be implemented carefully to be effective, since compiler optimizations might remove the redudant check entirely, or simplify it in a way that makes the redundant check useless for this purpose.
+      Adding redundancy to the loop condition can simply be done by duplicating the condition and concatenating them with an *and* operator.
+      Ideally the compiler will now generate something like this:\n
+      ```\n
+      loop_body:\n
+      \_\_...\n
+      \_\_li      a3,9\n
+      \_\_li      a4,9\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a5,a3, <loop_body>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_blt     a5,a4, <loop_body>\n
+      loop_end:\n
+      \_\_...\n
       ```
-      loop_body:
-        ...
-        li      a3,9
-        li      a4,9
-        lw      a5,12(sp)
-        blt     a5,a3,80000140 <loop_body>
-        lw      a5,12(sp)
-        blt     a5,a4,80000140 <loop_body>
-      loop_end:
-        ...
-      ```
-      In this example the loop will be continue exactly iff the condition is met even if e.g. one of the `li` instructions is skipped. The compiler does however not always generate such convenient constructs. It is hence recommended to add an additional check of the loop condition after the loop instead. Both of these mitigations will however not protect the code against an attack where an additional iteration of the loop body is executed. These attacks directly influence the loop counter (e.g. by preventing the updated value from being saved) and can thus only be mitigated in the loop body itself, by making the operations redundant.
+
+      In this example the loop will be continue exactly iff the condition is met even if e.g.
+      one of the `li` instructions is skipped.
+      The compiler does however not always generate such convenient constructs.
+      It is hence recommended to add an additional check of the loop condition after the loop instead.
+      Both of these mitigations will however not protect the code against an attack where an additional iteration of the loop body is executed.
+      These attacks directly influence the loop counter (e.g.
+      by preventing the updated value from being saved) and can thus only be mitigated in the loop body itself, by making the operations redundant.
+
+
       ## Implementation
-      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not. Alternatively add redundancy to the loop condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches. Using compiler annotations such as __builtin_expect might help to steer the compiler in the right direction however this approach is rather unreliable.
-    If necessary secure the update of the loop counter by making it redundant. For this to work everything, including loading, calculations, and storing needs to be redundant or checked. This could look like this in the source code:
+      
+      Add a check after the loop that verifies that the loop condition is met and trigger a panic if it is not.
+      Alternatively add redundancy to the loop condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches.
+      Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
+      If necessary secure the update of the loop counter by making it redundant.
+      For this to work everything, including loading, calculations, and storing needs to be redundant or checked.
+      This could look like this in the source code:\n
+      ```\n
+      for (i=0; i<3;) {\n
+      \_\_// body\n
+      \n
+      \_\_volatile int _i = i + 1;\n
+      \_\_i = i + 1;\n
+      \_\_if (i != _i)\n
+      \_\_\_\__hang();\n
+      }\n
       ```
-      for (i=0; i<3;) {
-        // body
-
-	volatile int _i = i + 1; 
-	i = i + 1;
-	if (i != _i)
-	    _hang();
-      } 
-
-      ```
+      "
 
 
-- id: ITE_1,
-  name: If-Then-Else,
+- id: ITE_1
+  name: IteControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control flow in If-Then-Else construct possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # If-Then-Else Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is a jump at the end of a building block of an If-Then-Else statement (Either Then- er Else-Part). Skipping this jump allows an attacker to execute both parts of the construct regardless of the condition. The first part that is executed is determined by the condition. Instead of leaving the construct the skipped branch will cause the other part of the construct to be executed. Depending on how the compiler builds this construct the first part might not always be the Then-Block of the construct.
+
+      The faulted instruction is a jump at the end of a building block of an If-Then-Else statement (Either Then- er Else-Part).
+      Skipping this jump allows an attacker to execute both parts of the construct regardless of the condition.
+      The first part that is executed is determined by the condition.
+      Instead of leaving the construct the skipped branch will cause the other part of the construct to be executed.
+      Depending on how the compiler builds this construct the first part might not always be the Then-Block of the construct.
 
       ## Mitigation
-      Take this simplified example of an If-Then-Else construct:
-      ```
-        li a5, 28
-        beq a5, a4, else
-        li a3, 0 ; signature_valid = false
-        j end
-      else: 
-        li a3, 1 ; signature_valid = true
-      end:
-        ...
+
+      Take this simplified example of an If-Then-Else construct:\n
+      ```\n
+      \_\_li a5, 28\n
+      \_\_beq a5, a4, <else>\n
+      \_\_li a3, 0 ; signature_valid = false\n
+      \_\_j end\n
+      else: \n
+      \_\_li a3, 1 ; signature_valid = true\n
+      end:\n
+      \_\_...\n
 
       ```
-      To protect the code against this attack, the part of the construct which contains insecure operations (e.g. `signature_valid = true`) should be behind the jump instruction of the other block. 
-      Consequently, the fault can be prevented by reordering the blocks like this:
-      ```
-        li a5, 28
-        bne a5, a4, else
-        li a3, 1 ; signature_valid = true
-        j end
-      else: 
-        li a3, 0 ; signature_valid = false
-      end:
-        ...
 
+      To protect the code against this attack, the part of the construct which contains insecure operations (e.g.
+      `signature_valid = true`) should be behind the jump instruction of the other block.
+      
+      Consequently, the fault can be prevented by reordering the blocks like this:\n
+      ```\n
+      \_\_li a5, 28\n
+      \_\_bne a5, a4, <else>\n
+      \_\_li a3, 1 ; signature_valid = true\n
+      \_\_j end\n
+      else: \n
+      \_\_li a3, 0 ; signature_valid = false\n
+      end:\n
+      \_\_...\n
       ```
-      If, however both parts of the construct contain insecure operations, this fix will not be possible. If the source code is not written in Assembly, the skipped jump instruction can not easily be duplicated which is why there is no viable mitigation. This is why only one part of an If-Then-Else construct should ever contain insecure operations. Refactor such codes into two seperate If-Then blocks and define a secure default value.
+
+      If, however both parts of the construct contain insecure operations, this fix will not be possible.
+      If the source code is not written in Assembly, the skipped jump instruction can not easily be duplicated which is why there is no viable mitigation.
+      This is why only one part of an If-Then-Else construct should ever contain insecure operations.
+      Refactor such codes into two seperate If-Then blocks and define a secure default value.
 
       # Implementation
-      If no optimizations are enabled it might suffice to simply swap the order of the blocks in the source code. In the case it is necessary to use compiler annotations (e.g. __builtin_expect from gcc) to instruct the compiler to use a specific order. These annotations are most likely provided for performance reasons since the compiler wants to place code that is likely to be executed right after the conditional branch instruction. To force a secure order of block it is thus required to define the block with insecure operations as the block that is likely to be executed.
+      
+      If no optimizations are enabled it might suffice to simply swap the order of the blocks in the source code.
+      In the case it is necessary to use compiler annotations (e.g. `__builtin_expect` from gcc) to instruct the compiler to use a specific order.
+      These annotations are most likely provided for performance reasons since the compiler wants to place code that is likely to be executed right after the conditional branch instruction.
+      To force a secure order of block it is thus required to define the block with insecure operations as the block that is likely to be executed.
+      "
 
 
-- id: ITE_2,
-  name: If-Then-Else,
+- id: ITE_2
+  name: IteControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control flow in If-Then construct possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # If-Then-Else Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is a conditional branch that is part of an If-Then statement. Skipping this branch allows an attacker to either wrongfully execute or completely skip the Then-Block of the construct.
+
+      The faulted instruction is a conditional branch that is part of an If-Then statement.
+      Skipping this branch allows an attacker to either wrongfully execute or completely skip the Then-Block of the construct.
+
 
       ## Mitigation
-      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error. To protect the affected code the checks of the condition need to be redundant. This can for example be achieved by duplicating the condition statement and concatenating it with `&&`. Ideally the compiler will then generate something like this from the source code:
-      ``
-        li      a3,1
-        li      a4,1
-        lw      a5,12(sp)
-        bne     a3,a5,80000140 <end>
-        lw      a5,12(sp)
-        bne     a4,a5,80000140 <end>
-      then:
-        ...
-      end:
-        ...
+
+      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error.
+      To protect the affected code the checks of the condition need to be redundant.
+      This can for example be achieved by duplicating the condition statement and concatenating it with `&&`.
+      Ideally the compiler will then generate something like this from the source code:\n
+      ```\n
+      \_\_li      a3,1\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <end>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a4,a5, <end>\n
+      then:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
       ```
 
       ## Implementation
-      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the construct in a way that is secure against skipping a single branch. Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure. Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+
+      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the construct in a way that is secure against skipping a single branch.
+      Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure.
+      Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+      "
 
 
-- id: ITE_3,
-  name: If-Then-Else,
+- id: ITE_3
+  name: IteControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control flow in If-Then-Else construct possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # If-Then-Else Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction is a conditional branch that is part of an If-Then-Else statement. Skipping this branch allows an attacker to either enter the Then-or Else-Block of the construct regardless of the condition, depending on the way the compiler assembled the program.
+
+      The faulted instruction is a conditional branch that is part of an If-Then-Else statement.
+      Skipping this branch allows an attacker to either enter the Then- or Else-Block of the construct regardless of the condition, depending on the way the compiler assembled the program.
 
       ## Mitigation
-      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error. To protect the affected code the checks of the condition need to be redundant. This can for example be achieved by duplicating the condition statement and concatenating it with `&&`. Ideally the compiler will then generate something like this from the source code:
+
+      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error.
+      To protect the affected code the checks of the condition need to be redundant.
+      This can for example be achieved by duplicating the condition statement and concatenating it with `&&`.
+      Ideally the compiler will then generate something like this from the source code:\n
+      ```\n
+      \_\_li      a3,1\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <else>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a4,a5, <else>\n
+      then:\n
+      \_\_...\n
+      \_\_j end\n
+      else:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
       ```
-        li      a3,1
-        li      a4,1
-        lw      a5,12(sp)
-        bne     a3,a5,80000140 <else>
-        lw      a5,12(sp)
-        bne     a4,a5,80000140 <else>
-      then:
-        ...
-        j end
-      else:
-        ...
-      end:
-        ...
-      ```
+
 
       ## Implementation
-      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the construct in a way that is secure against skipping a single branch. Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure. Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+
+      Add redundancy to the condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the construct in a way that is secure against skipping a single branch.
+      Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure.
+      Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+      "
 
 
-- id: ITE_4,
-  name: If-Then-Else,
+- id: ITE_4
+  name: IteControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control flow in If-Then construct possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # If-Then Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction affects a conditional branch that is part of an If-Then statement. Skipping this instruction allows an attacker to either skip or execute the Then-Block regardless of the condition, depending on the way the compiler assembled the program.
+
+      The faulted instruction affects a conditional branch that is part of an If-Then statement.
+      Skipping this instruction allows an attacker to either skip or execute the Then-Block regardless of the condition, depending on the way the compiler assembled the program.
 
       ## Mitigation
-      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error. Since the faulted instruction only affects the condition of a single construct, it is likely a part of the condition check. If that is not the case, the calculation, loading, or storing of the value needs to be secured by making it redundant or by including checks that verify that some critical code has been executed. There is no general solution for that case since it is highly dependent on the affected code. In the case where the faulted instruction is part of the condition check, the check can be made redundant as a mitigation. This can for example be achieved by duplicating the condition statement and concatenating it with `&&`. Ideally the compiler will then generate something like this from the source code:
+
+      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error.
+      Since the faulted instruction only affects the condition of a single construct, it is likely a part of the condition check.
+      If that is not the case, the calculation, loading, or storing of the value needs to be secured by making it redundant or by including checks that verify that some critical code has been executed.
+      There is no general solution for that case since it is highly dependent on the affected code.
+      In the case where the faulted instruction is part of the condition check, the check can be made redundant as a mitigation.
+      This can for example be achieved by duplicating the condition statement and concatenating it with `&&`.
+      Ideally the compiler will then generate something like this from the source code:\n
+      ```\n
+      \_\_li      a3,1\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <end>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a4,a5, <end>\n
+      then:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
       ```
-        li      a3,1
-        li      a4,1
-        lw      a5,12(sp)
-        bne     a3,a5,80000140 <end>
-        lw      a5,12(sp)
-        bne     a4,a5,80000140 <end>
-      then:
-        ...
-      end:
-        ...
-      ```
+
 
       ## Implementation
-      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the check in a way that each instruction the redundant check is now duplicated. Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure. Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+
+      Add redundancy to the condition (e.g.
+      through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the check in a way that each instruction the redundant check is now duplicated.
+      Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure.
+      Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+      "
 
 
-- id: ITE_5,
-  name: If-Then-Else,
+- id: ITE_5
+  name: IteControlFlowIntegrityViolation
   shortDescription:
     text: Violation of control flow in If-Then-Else construct possible
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # If-Then Control Flow Integrity
+
       ## Fault Description
-      The faulted instruction affects a conditional branch that is part of an If-Then-Else statement. Skipping this instruction allows an attacker to either skip or execute the Then-Block regardless of the condition, depending on the way the compiler assembled the program.
+
+      The faulted instruction affects a conditional branch that is part of an If-Then-Else statement.
+      Skipping this instruction allows an attacker to either skip or execute the Then-Block regardless of the condition, depending on the way the compiler assembled the program.
 
       ## Mitigation
-      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error. Since the faulted instruction only affects the condition of a single construct, it is likely a part of the condition check. If that is not the case, the calculation, loading, or storing of the value needs to be secured by making it redundant or by including checks that verify that some critical code has been executed. There is no general solution for that case since it is highly dependent on the affected code. In the case where the faulted instruction is part of the condition check, the check can be made redundant as a mitigation. This can for example be achieved by duplicating the condition statement and concatenating it with `&&`. Ideally the compiler will then generate something like this from the source code:
+
+      Implementing an effective countermeasure against this fault can be a bit cumbersome and might require some trial and error.
+      Since the faulted instruction only affects the condition of a single construct, it is likely a part of the condition check.
+      If that is not the case, the calculation, loading, or storing of the value needs to be secured by making it redundant or by including checks that verify that some critical code has been executed.
+      There is no general solution for that case since it is highly dependent on the affected code.
+      In the case where the faulted instruction is part of the condition check, the check can be made redundant as a mitigation.
+      This can for example be achieved by duplicating the condition statement and concatenating it with `&&`.
+      Ideally the compiler will then generate something like this from the source code:\n
+      ```\n
+      \_\_li      a3,1\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <else>\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a4,a5, <else>\n
+      then:\n
+      \_\_...\n
+      \_\_j end\n
+      else:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
       ```
-        li      a3,1
-        li      a4,1
-        lw      a5,12(sp)
-        bne     a3,a5,80000140 <else>
-        lw      a5,12(sp)
-        bne     a4,a5,80000140 <else>
-      then:
-        ...
-        j end
-      else:
-        ...
-      end:
-        ...
-      ```
+
 
       ## Implementation
-      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the check in a way that each instruction the redundant check is now duplicated. Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure. Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+
+      Add redundancy to the condition (e.g. through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the check in a way that each instruction the redundant check is now duplicated.
+      Depending on the optimization level, the compiler might alter this redundant check in a way that makes it ineffective as a countermeasure.
+      Consequently, there is no solution which is guaranteed to work right away which is why some tweaking might be required to achieve the desired results.
+      "
 
 
-- id: MISC_BRANCH,
-  name: Misc,
+- id: MISC_BRANCH
+  name: MiscBranchControlFlowViolation
   shortDescription:
     text: Violation of control flow
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Violation
+
       ## Fault Description
-      The faulted construction is an (unconditional) branch that does not belong to a loop or If-Then(-Else) construct. Such a fault allows an attacker to possibly reach any part in the current function, depending on how the compiler assembled the source code. This fault most often occurs when using performance-oriented optimization profiles as it is the result of reordering efforts that try to minimize the amount of branches taken during execution.
+      
+      The faulted construction is an (unconditional) branch that does not belong to a loop or If-Then(-Else) construct.
+      Such a fault allows an attacker to possibly reach any part in the current function, depending on how the compiler assembled the source code.
+      This fault most often occurs when using performance-oriented optimization profiles as it is the result of reordering efforts that try to minimize the amount of branches taken during execution.
+
 
       ## Mitigation
-      Hardening the code against this fault is hard since it is not a weakness in the source code unless it is written in Assembly. Slightly restructuring the function might solve this problem, however this is neither guranteed to work nor is it very reliable. Since this problem is likely the result of an optimization, turning off the optimization, or choosing a less aggresive profile might be the best solution.
+
+      Hardening the code against this fault is hard since it is not a weakness in the source code unless it is written in Assembly.
+      Slightly restructuring the function might solve this problem, however this is neither guranteed to work nor is it very reliable.
+      Since this problem is likely the result of an optimization, turning off the optimization, or choosing a less aggresive profile might be the best solution.
+
 
       ## Implementation
-      Most compilers support the specification of optimzation profiles on a function level. GCC provides an attribute for this called `optimize`. Use it to reduce the optimization level and verify that the change was effective:
+      
+      Most compilers support the specification of optimzation profiles on a function level.
+      GCC provides an attribute for this called `optimize`.
+      Use it to reduce the optimization level and verify that the change was effective:\n
+      ```\n
+      int __attribute__((optimize(\"O0\"))) main(void) {\n
+      \_\_...\n
+      }\n
       ```
-      int __attribute__((optimize("O0"))) main(void) {
-        ...
-      }
-      ```
+      "
 
-- id: MISC_LOAD,
-  name: Misc,
+- id: MISC_LOAD
+  name: MiscLoadControlFlowViolation
   shortDescription:
     text: Violation of control flow through prevention of a LOAD operation
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Violation
+
       ## Fault Description
-      The faulted instruction contains a *load* operation, that possibly affects the control flow of multiple if-then-(else) constructs. This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
+
+      The faulted instruction contains a *load* operation, that possibly affects the control flow of multiple if-then-(else) constructs.
+      This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
 
       ## Mitigation
-      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions. Harden this code by performing the faulted *load* operation redundantly or by verifying that that the load operarion was successful through a check.
+
+      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions.
+      Harden this code by performing the faulted *load* operation redundantly or by verifying that that the load operarion was successful through a check.
+
 
       ## Implementation
-      Use the `FIH_SET(x, y)` macro to load the affected value from memory. The macro performs a check after the load operation to verify that the loaded value is equal to the one in memory.
+
+      Use the `FIH_SET(x, y)` macro to load the affected value from memory.
+      The macro performs a check after the load operation to verify that the loaded value is equal to the one in memory.
+      "
 
 
-- id: MISC_STORE,
-  name: Misc,
+- id: MISC_STORE
+  name: MiscStoreControlFlowViolation
   shortDescription:
     text: Violation of control flow through prevention of a STORE operation
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Violation
+
       ## Fault Description
-      The faulted instruction contains a *store* operation, that possibly affects the control flow of multiple if-then-(else) constructs. This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
+      
+      The faulted instruction contains a *store* operation, that possibly affects the control flow of multiple if-then-(else) constructs.
+      This likely impacted a value which is later used in the conditions of the if-then-(else) constructs.
+
 
       ## Mitigation
-      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions. Harden this code by performing the faulted *store* operation redundantly or by verifying that that the store operarion was successful through a check.
+      
+      The fault does not directly affect a specific construct which means that the fault can only be prevented by securing the part of the program that calculates the faulted value which is used in the conditions.
+      Harden this code by performing the faulted *store* operation redundantly or by verifying that that the store operarion was successful through a check.
+
 
       ## Implementation
-      Use the `FIH_SET(x, y)` macro to store the affected value in memory. The macro performs a check after the store operation to verify that the stored value in memory is equal to the one in the register.
+      
+      Use the `FIH_SET(x, y)` macro to store the affected value in memory.
+      The macro performs a check after the store operation to verify that the stored value in memory is equal to the one in the register.
+      "
 
-- id: MISC,
-  name: ,
+- id: MISC
+  name: MiscControlFlowViolation
   shortDescription:
-    text: Violation of control flow through prevention of a LOAD operation
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
+    text: Violation of control flow
   help: 
     text: ""
-    markdown: |
+    markdown: "\
       # Control Flow Violation
+
       ## Fault Description
-      The faulted instruction possibly affects multiple if-then-(else) constructs. The fault does not directly affect the condition check of a specific construct which means that the cause of the fault is unrelated to the identified constructs.
 
+      The faulted instruction possibly affects multiple if-then-(else) constructs.
+      The fault does not directly affect the condition check of a specific construct which means that the cause of the fault is unrelated to the identified constructs.
+
+      
       ## Mitigation
-      Hardening this code against this fault in the source code is not straight-forward since its effects can be complex and require understanding of the code. In general introducing redundancy to the code can fix this vulnerability, however this redundancy needs to be as fine-grained as possible in order to keep the perfomance impact small. If this fault type appears often, it is an indicator of a poor high-level design. Take the calculation of a hash over some buffer for example. If the hash is compared to values in a blacklist it is trivial to find a fault in the calculation that generates a hash value that passes the check. If the value is however compared to values in a whitelist a fault would need to be chosen extremely carefully to generate a value that exists in the whitelist.
 
-- id: UNKNOWN,
-  name: ,
+      Hardening this code against this fault in the source code is not straight-forward since its effects can be complex and require understanding of the code.
+      In general introducing redundancy to the code can fix this vulnerability, however this redundancy needs to be as fine-grained as possible in order to keep the perfomance impact small.
+      If this fault type appears often, it is an indicator of a poor high-level design.
+      Take the calculation of a hash over some buffer for example.
+      If the hash is compared to values in a blacklist it is trivial to find a fault in the calculation that generates a hash value that passes the check.
+      If the value is however compared to values in a whitelist a fault would need to be chosen extremely carefully to generate a value that exists in the whitelist.
+      "
+
+- id: UNKNOWN
+  name: UnknownControlFlowViolation
   shortDescription:
     text: Violation of control flow with unknown cause
-  fullDescription:
-    text: Lorem ipsum dolir sit amet consetutor
   help: 
-    text: "idk"
+    text: ""
+    markdown: "
+      # Fault Description
+
+      The analysis was unable to detect how the faulted instruction influences the control flow. 
+    "

@@ -14,6 +14,8 @@
 
 from util import FaultCategory
 from ite import IfThen, IfThenElse
+import yaml
+import os
 
 
 def get_countermeasure(report, ring_buffer_enabled):
@@ -61,27 +63,8 @@ def get_countermeasure(report, ring_buffer_enabled):
 
 
 def get_rules():
-    return [
-        {
-            "id": "CFI_1",
-            "name": "Control Flow Integrity",
-            "shortDescription": {
-                "text": "Violation of control-flow integrity possible"
-            },
-            "fullDescription": {"text": "Lorem ipsum dolir sit amet consetutor"},
-            "help": {
-                "text": "",
-                "markdown": """\
-# Control Flow Integrity
-## Fault Description
-The faulted instruction is a function call. The fault causes the execution of the function to be fully skipped without causing any side effects.
-
-## Mitigation
-Harden this code by implementing a global counter that is saved locally and increased before each function call that should be protected. Every return instruction in that function needs to decrease that counter again before being executed. After the control flow has returned from the protected function the saved counter value is compared to the current value of the global counter and safely checked for equality. If this check fails, a panic needs to be triggered
-
-## Implementation
-Use the `FIH_CALL(f, ret, ...)` macro from the hardening header file to call the function and use the `FIH_RET(ret)` macro inside that function to return from it."
-""",
-            },
-        }
-    ]
+    __location__ = os.path.realpath(
+        os.path.join(os.getcwd(), os.path.dirname(__file__))
+    )
+    with open(os.path.join(__location__, "rules.yaml")) as rules_fd:
+        return yaml.safe_load(rules_fd)

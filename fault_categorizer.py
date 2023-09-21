@@ -31,39 +31,53 @@ import h5py
 import jsonpickle
 
 from data_dependency_analysis import DataDependencyAnalysis
-from countermeasures import get_countermeasure, get_rules
+from countermeasures import get_rules
 
 
-def check_cfi(basic_blocks, instructions, elf, target_address):
+def check_cfi(basic_blocks, instruction_ops, elf, target_address):
     fault_category = None
-    ops = instructions[target_address]
+    ops = instruction_ops[target_address]
     if any(op.opcode == OpCode.CALL for op in ops):
         fault_category = util.FaultCategory.CFI_1
 
     bb = basic_blocks[max(basic_blocks)]
     if ops[-1].opcode == OpCode.RETURN:
-        if max(bb.instructions) == target_address:
+        if max(bb.instruction_ops) == target_address:
             fault_category = util.FaultCategory.CFI_2
         else:
             fault_category = util.FaultCategory.CFI_3
 
-    if ops[-1].opcode == OpCode.BRANCH and max(bb.instructions) == target_address:
+    if ops[-1].opcode == OpCode.BRANCH and max(bb.instruction_ops) == target_address:
         fault_category = util.FaultCategory.CFI_4
 
     if fault_category:
         return util.FaultReport(target_address, fault_category)
 
 
-def log_results(fault_reports, elf, ddg, instructions, args):
+def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
+    rules = get_rules()
+    instruction_addresses = sorted(instructions.keys())
+
     for report in fault_reports:
-        if args.countermeasures:
-            report.set_countermeasure(get_countermeasure(report, not args.accurate))
         source = util.decode_file_line(elf.get_dwarf_info(), report.fault_address)
+
+        fault_detail = "Disassembly:\n"
+        fault_insn_index = instruction_addresses.index(report.fault_address)
+        fault_detail += util.disassembly_pp(
+            instructions,
+            instruction_addresses[fault_insn_index - 3],
+            instruction_addresses[fault_insn_index + 6],
+            report.fault_address,
+        )
+
         if source != (None, None):
             source = {"filename": source[0].decode(), "line": source[1]}
             report.set_source(source)
+
         if report.affected_branches == None:
+            report.set_detail(fault_detail)
             continue
+
         for i, address in enumerate(report.affected_branches):
             source = util.decode_file_line(elf.get_dwarf_info(), address)
             if source != (None, None):
@@ -72,6 +86,24 @@ def log_results(fault_reports, elf, ddg, instructions, args):
                     "address": report.affected_branches[i],
                     "source": source,
                 }
+
+        if report.affected_branches:
+            fault_detail += "Fault affected branch(es) at: \n"
+            for branch in report.affected_branches:
+                fault_detail += f"{hex(branch['address'])} ({branch['source']['filename']}:{branch['source']['line']})\n"
+
+        if report.category == util.FaultCategory.UNKNOWN:
+            dependents = ddg.find_dependents(report.fault_address)
+            affects_store_op = False
+            for dep in dependents:
+                for op in instruction_ops[dep.insn_addr]:
+                    if op.opcode == OpCode.STORE:
+                        affects_store_op = True
+                        break
+
+            if affects_store_op:
+                fault_detail += "\r\nThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data."
+        report.set_detail(fault_detail)
 
     if args.output == "json":
         print(jsonpickle.encode(fault_reports, unpicklable=False))
@@ -90,17 +122,13 @@ def log_results(fault_reports, elf, ddg, instructions, args):
                         "name": "Fault Analysis",
                         "informationUri": "https://github.com/ks0777/fault_categorizer",
                         "version": "1.0",
-                        "rules": get_rules(),
+                        "rules": rules,
                     }
                 },
                 "results": [
                     {
                         "ruleId": report.category,
-                        "message": {
-                            "text": (
-                                report.countermeasure if report.countermeasure else ""
-                            )
-                        },
+                        "message": {"text": report.detail},
                         "locations": [
                             {
                                 "physicalLocation": {
@@ -148,6 +176,13 @@ def log_results(fault_reports, elf, ddg, instructions, args):
             print(
                 f"Skipped instruction at {hex(report.fault_address)} caused fault of type {report.category}"
             )
+        print(
+            next(
+                filter(
+                    lambda rule: rule["id"] == str(report.category).split(".")[1], rules
+                )
+            )["help"]["markdown"]
+        )
         if report.affected_branches:
             if len(report.affected_branches) == 1:
                 branch = report.affected_branches[0]
@@ -176,7 +211,7 @@ def log_results(fault_reports, elf, ddg, instructions, args):
             affects_store_op = False
             for dep in dependents:
                 print(f"\t\t{str(dep)}")
-                for op in instructions[dep.insn_addr]:
+                for op in instruction_ops[dep.insn_addr]:
                     if op.opcode == OpCode.STORE:
                         affects_store_op = True
                         break
@@ -186,8 +221,8 @@ def log_results(fault_reports, elf, ddg, instructions, args):
                     "\tThe skipped instruction affects a store instruction. If the target is inside device memory the analysis can not continue because of insufficient log data."
                 )
 
-        if report.countermeasure:
-            print(report.countermeasure)
+        if report.detail:
+            print(report.detail)
 
         print("")
 
@@ -219,15 +254,15 @@ def categorize_faults(args):
                 fault_dict[fault_address] = [experiment_id]
     hdf_file.close()
 
-    instructions = util.load_instructions(elf)
-    ddg = DataDependencyAnalysis(instructions, tbexeclist, tbinfo, meminfo)
+    instruction_ops, instructions = util.load_instruction_ops(elf)
+    ddg = DataDependencyAnalysis(instruction_ops, tbexeclist, tbinfo, meminfo)
 
     for target_address in args.address:
         target_address = int(target_address, 0)
 
         function = util.find_function_by_address(elf, target_address)
         basic_blocks = util.find_basic_blocks(
-            instructions, function.start_address, function.end_address
+            instruction_ops, function.start_address, function.end_address
         )
 
         postorder = []
@@ -242,13 +277,13 @@ def categorize_faults(args):
             )
 
         if (
-            report := check_cfi(basic_blocks, instructions, elf, target_address)
+            report := check_cfi(basic_blocks, instruction_ops, elf, target_address)
         ) != None:
             fault_reports.append(report)
             continue
         if (
             report := check_li(
-                basic_blocks, instructions, ddg, affected_branches, target_address
+                basic_blocks, instruction_ops, ddg, affected_branches, target_address
             )
         ) != None:
             fault_reports.append(report)
@@ -256,7 +291,7 @@ def categorize_faults(args):
         if (
             report := check_ite(
                 basic_blocks,
-                instructions,
+                instruction_ops,
                 function,
                 ddg,
                 postorder,
@@ -265,10 +300,12 @@ def categorize_faults(args):
             )
         ) != None:
             if report.category == util.FaultCategory.UNKNOWN:
-                report = check_branch_intervention(report, instructions, target_address)
+                report = check_branch_intervention(
+                    report, instruction_ops, target_address
+                )
             fault_reports.append(report)
             continue
-        if (report := check_branch(instructions, target_address)) != None:
+        if (report := check_branch(instruction_ops, target_address)) != None:
             fault_reports.append(report)
             continue
 
@@ -276,7 +313,7 @@ def categorize_faults(args):
             util.FaultReport(target_address, util.FaultCategory.UNKNOWN)
         )
 
-    log_results(fault_reports, elf, ddg, instructions, args)
+    log_results(fault_reports, elf, ddg, instruction_ops, instructions, args)
 
     f_bin.close()
 
@@ -307,12 +344,6 @@ def main():
         help="Address(es) that define a successful fault attack once reached",
         nargs="+",
         required=False,
-    )
-    parser.add_argument(
-        "-c",
-        "--countermeasures",
-        help="Suggest software-based countermeasures against discovered faults",
-        action="store_true",
     )
     parser.add_argument(
         "--accurate",

@@ -29,13 +29,13 @@ class FaultReport:
         self.category = category
         self.affected_branches = affected_branches
         self.related_constructs = related_constructs
-        self.countermeasure = None
+        self.detail = None
 
     def set_source(self, source):
         self.source = source
 
-    def set_countermeasure(self, countermeasure):
-        self.countermeasure = countermeasure
+    def set_detail(self, detail):
+        self.detail = detail
 
     def __str__(self):
         return str(self.category) + (
@@ -78,8 +78,9 @@ class FaultCategoryHandler(jsonpickle.handlers.BaseHandler):
         pass
 
 
-def load_instructions(elf_file):
-    instructions = dict()
+def load_instruction_ops(elf_file):
+    ops = dict()
+    instruction_ops = dict()
     data = None
 
     ctx = Context("RISCV:LE:64:default")
@@ -110,12 +111,16 @@ def load_instructions(elf_file):
                             # Keep track of instruction markers
                             if op.opcode == OpCode.IMARK:
                                 current_insn_addr = op.inputs[0].offset
-                                instructions[current_insn_addr] = []
+                                ops[current_insn_addr] = []
                                 continue
 
-                            instructions[current_insn_addr].append(op)
+                            ops[current_insn_addr].append(op)
 
-    return instructions
+                        dx = ctx.disassemble(function_data, base_address=symbol_address)
+                        for instruction in dx.instructions:
+                            instruction_ops[instruction.addr.offset] = instruction
+
+    return [ops, instruction_ops]
 
 
 def decode_file_line(dwarfinfo, address):
@@ -178,10 +183,10 @@ def find_function_by_address(elf, target_address):
 
 
 class BasicBlock:
-    def __init__(self, start_address, end_address, instructions):
+    def __init__(self, start_address, end_address, instruction_ops):
         self.start_address = start_address
         self.end_address = end_address
-        self.instructions = instructions
+        self.instruction_ops = instruction_ops
         self.successors = []
         self.predecessors = []
         self.dominators = []
@@ -208,11 +213,11 @@ class BasicBlockHandler(jsonpickle.handlers.BaseHandler):
         pass
 
 
-def find_basic_blocks(instructions, start_address, end_address):
+def find_basic_blocks(instruction_ops, start_address, end_address):
     basic_blocks = dict()
     splits = set(())
 
-    insn_addresses = sorted(instructions.keys())
+    insn_addresses = sorted(instruction_ops.keys())
     split_next_insn = False
     for addr in insn_addresses[insn_addresses.index(start_address) :]:
         if addr > end_address:
@@ -222,7 +227,7 @@ def find_basic_blocks(instructions, start_address, end_address):
             splits.add(addr)
             split_next_insn = False
 
-        last_op = instructions[addr][-1]
+        last_op = instruction_ops[addr][-1]
 
         if last_op.opcode == OpCode.CBRANCH or last_op.opcode == OpCode.BRANCH:
             branch_target = last_op.inputs[0].offset
@@ -242,8 +247,8 @@ def find_basic_blocks(instructions, start_address, end_address):
 
     for bb in basic_blocks.values():
         for addr in range(bb.start_address, bb.end_address):
-            if addr in instructions:
-                bb.instructions[addr] = instructions[addr]
+            if addr in instruction_ops:
+                bb.instruction_ops[addr] = instruction_ops[addr]
 
     return basic_blocks
 
@@ -257,10 +262,10 @@ def build_cfg(basic_blocks, current, function, discovered, postorder):
 
     discovered.append(current.start_address)
 
-    if len(current.instructions) == 0:
+    if len(current.instruction_ops) == 0:
         return
 
-    last_op = current.instructions[max(current.instructions)][-1]
+    last_op = current.instruction_ops[max(current.instruction_ops)][-1]
 
     if OpCode.CBRANCH == last_op.opcode:
         successor = basic_blocks[current.end_address + 1]
@@ -397,7 +402,7 @@ def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[
         return False
     discovered.append(bb.start_address)
 
-    for insn_address, ops in sorted(bb.instructions.items())[::-1]:
+    for insn_address, ops in sorted(bb.instruction_ops.items())[::-1]:
         for op in ops[::-1]:
             print(
                 hex(insn_address),
@@ -480,7 +485,7 @@ def find_affected_branches(
             "tb"
         ]  # Last basic block in trace before diversion from goldenrun
         try:
-            instructions = basic_blocks[affected_bb.iloc[0]].instructions
+            instruction_ops = basic_blocks[affected_bb.iloc[0]].instruction_ops
         except KeyError:
             # Basic block not found. The tbexeclist contains addresses of QEMU's translation blocks. These are blocks of code which are translated by QEMU's tcg.
             # In most cases they are identical to the basic blocks. On some occassions QEMU will however split up basic blocks into multiple translation blocks,
@@ -493,8 +498,24 @@ def find_affected_branches(
                     )
                 )
             )
-            instructions = basic_blocks[affected_bb].instructions
-        if instructions[max(instructions)][-1].opcode == OpCode.CBRANCH:
-            affected_branches.add(max(instructions))
+            instruction_ops = basic_blocks[affected_bb].instruction_ops
+        if instruction_ops[max(instruction_ops)][-1].opcode == OpCode.CBRANCH:
+            affected_branches.add(max(instruction_ops))
 
     return list(affected_branches)
+
+
+def disassembly_pp(instructions, start_address, end_address, faulted_address):
+    disassembly = ""
+    for ins in sorted(
+        filter(
+            lambda ins: ins.addr.offset >= start_address
+            and ins.addr.offset <= end_address,
+            instructions.values(),
+        ),
+        key=lambda ins: ins.addr.offset,
+    ):
+        if ins.addr.offset == faulted_address:
+            disassembly += "-> "
+        disassembly += f"{ins.addr.offset:#x}/{ins.length}: {ins.mnem} {ins.body}\n"
+    return disassembly

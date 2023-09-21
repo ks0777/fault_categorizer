@@ -118,7 +118,7 @@ def identify_constructs(basic_blocks, function, postorder):
                 constructs.append(
                     IfThenElse(condition_blocks, then_blocks, else_blocks)
                 )
-        elif bb.instructions[max(bb.instructions)][-1].opcode == OpCode.RETURN:
+        elif bb.instruction_ops[max(bb.instruction_ops)][-1].opcode == OpCode.RETURN:
             for immediate_pred in sorted(bb.predecessors)[::-1]:
                 pred_head = immediate_pred
                 then_blocks = {bb}
@@ -172,7 +172,7 @@ def find_related_construct(constructs, target_address):
 
 def check_ite(
     basic_blocks,
-    instructions,
+    instruction_ops,
     function,
     ddg,
     postorder,
@@ -181,12 +181,12 @@ def check_ite(
 ):
     constructs = identify_constructs(basic_blocks, function, postorder)
 
-    instruction_addresses = sorted(instructions.keys())
+    instruction_addresses = sorted(instruction_ops.keys())
     next_instruction_addr = instruction_addresses[
         instruction_addresses.index(target_address) + 1
     ]
 
-    last_op = instructions[target_address][-1]
+    last_op = instruction_ops[target_address][-1]
     if last_op.opcode == OpCode.BRANCH:
         related_construct = find_related_construct(constructs, target_address)
         if related_construct == None or isinstance(related_construct, IfThen):
@@ -245,7 +245,7 @@ def check_ite(
             fault_report.related_constructs[node.insn_addr] = related_construct
 
         elif affected_branches == None:
-            ops = instructions[node.insn_addr]
+            ops = instruction_ops[node.insn_addr]
             if ops[-1].opcode == OpCode.CBRANCH:
                 related_construct = find_related_construct(constructs, node.insn_addr)
                 fault_report.affected_branches.append(node.insn_addr)
