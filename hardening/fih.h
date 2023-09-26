@@ -35,6 +35,29 @@ void fih_cfi_decrement(void);
         return ret; \
     } while (0)
 
+#define FIH_RET_2(ret) \
+    volatile char ____decoy____ = 1; \
+    if (__builtin_expect(____decoy____, 1)) { \
+        FIH_CFI_PRERET; \
+        return ret; \
+    } \
+    FIH_PANIC;
+
+#define FIH_RET_3(ret) \
+    volatile char ____decoy____ = 1; \
+    if (__builtin_expect(____decoy____, 1)) { \
+        return ret; \
+    } \
+    FIH_PANIC;
+
+#define CONCAT_IMPL( x, y ) x##y
+#define MACRO_CONCAT( x, y ) CONCAT_IMPL( x, y )
+
+#define FIH_FUNCTION_BARRIER \
+    __attribute__((used, noinline)) void MACRO_CONCAT(__function_barrier, __COUNTER__)() { \
+	FIH_PANIC; \
+    }
+
 #define FIH_CFI_PRECALL_BLOCK \
     int _fih_cfi_saved_value = fih_cfi_get_and_increment()
 
@@ -43,3 +66,4 @@ void fih_cfi_decrement(void);
 
 #define FIH_CFI_PRERET \
     fih_cfi_decrement()
+
