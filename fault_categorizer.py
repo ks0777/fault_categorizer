@@ -15,43 +15,23 @@
 # limitations under the License.
 
 from pypcode import Context, PcodePrettyPrinter
-from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
-import argparse
+from pypcode.pypcode_native import OpCode as OpCode
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import Section
 from elftools.elf.segments import Segment
 
 from loop_integrity import check_li
 from ite import check_ite
+from cfi import check_cfi
 from misc import check_branch, check_branch_intervention
-import util
+from countermeasures import get_rules
+from data_dependency_analysis import DataDependencyAnalysis
 
+import util
 import pandas
 import h5py
 import jsonpickle
-
-from data_dependency_analysis import DataDependencyAnalysis
-from countermeasures import get_rules
-
-
-def check_cfi(basic_blocks, instruction_ops, elf, target_address):
-    fault_category = None
-    ops = instruction_ops[target_address]
-    if any(op.opcode == OpCode.CALL for op in ops):
-        fault_category = util.FaultCategory.CFI_1
-
-    bb = basic_blocks[max(basic_blocks)]
-    if ops[-1].opcode == OpCode.RETURN:
-        if max(bb.instruction_ops) == target_address:
-            fault_category = util.FaultCategory.CFI_2
-        else:
-            fault_category = util.FaultCategory.CFI_3
-
-    if ops[-1].opcode == OpCode.BRANCH and max(bb.instruction_ops) == target_address:
-        fault_category = util.FaultCategory.CFI_4
-
-    if fault_category:
-        return util.FaultReport(target_address, fault_category)
+import argparse
 
 
 def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
@@ -222,7 +202,7 @@ def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
                 )
 
         if report.detail:
-            print(report.detail)
+            print("\n" + report.detail)
 
         print("")
 
@@ -257,17 +237,32 @@ def categorize_faults(args):
     instruction_ops, instructions = util.load_instruction_ops(elf)
     ddg = DataDependencyAnalysis(instruction_ops, tbexeclist, tbinfo, meminfo)
 
-    for target_address in args.address:
-        target_address = int(target_address, 0)
-
-        function = util.find_function_by_address(elf, target_address)
-        basic_blocks = util.find_basic_blocks(
+    basic_blocks = dict()
+    postorders = dict()
+    functions = list(util.get_functions(elf))
+    for function in functions:
+        basic_blocks |= util.find_basic_blocks(
             instruction_ops, function.start_address, function.end_address
         )
 
-        postorder = []
+        postorders[function.start_address] = []
         util.build_cfg(
-            basic_blocks, basic_blocks[function.start_address], function, [], postorder
+            basic_blocks,
+            basic_blocks[function.start_address],
+            function,
+            [],
+            postorders[function.start_address],
+        )
+
+    for target_address in args.address:
+        target_address = int(target_address, 0)
+
+        function = next(
+            filter(
+                lambda f: f.start_address <= target_address
+                and f.end_address >= target_address,
+                functions,
+            )
         )
 
         affected_branches = None
@@ -277,7 +272,7 @@ def categorize_faults(args):
             )
 
         if (
-            report := check_cfi(basic_blocks, instruction_ops, elf, target_address)
+            report := check_cfi(basic_blocks, instruction_ops, function, target_address)
         ) != None:
             fault_reports.append(report)
             continue
@@ -294,14 +289,14 @@ def categorize_faults(args):
                 instruction_ops,
                 function,
                 ddg,
-                postorder,
+                postorders[function.start_address],
                 affected_branches,
                 target_address,
             )
         ) != None:
             if report.category == util.FaultCategory.UNKNOWN:
                 report = check_branch_intervention(
-                    report, instruction_ops, target_address
+                    report, ddg, instruction_ops, target_address
                 )
             fault_reports.append(report)
             continue

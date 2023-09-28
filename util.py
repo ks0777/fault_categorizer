@@ -16,6 +16,7 @@ from pypcode import Context
 from pypcode.pypcode_native import OpCode, BadDataError
 
 from enum import Enum
+from functools import cache
 import jsonpickle.handlers
 import pandas
 
@@ -86,7 +87,10 @@ def load_instruction_ops(elf_file):
     ctx = Context("RISCV:LE:64:default")
 
     for section in elf_file.iter_sections():
-        if section.name == ".text":  # Assuming text sections contain executable code
+        if section.name in [
+            ".text",
+            ".init",
+        ]:  # Assuming text and init sections contain executable code
             # Get the address range for the section
             start_address = section["sh_addr"]
             end_address = start_address + section["sh_size"]
@@ -180,6 +184,30 @@ def find_function_by_address(elf, target_address):
 
     # If no matching function is found, return None
     return None
+
+
+def get_functions(elf):
+    # Iterate over the sections in the ELF file
+    for section in elf.iter_sections():
+        # Check if the section is a symbol table
+        if section.name == ".symtab":
+            symbol_table = section
+            break
+    else:
+        # If no symbol table is found, return None
+        return
+
+    # Iterate over the symbols in the symbol table
+    for symbol in symbol_table.iter_symbols():
+        # Check if the symbol is a function
+        if symbol["st_info"]["type"] == "STT_FUNC":
+            start_address = symbol["st_value"]
+            end_address = start_address + symbol["st_size"]
+
+            yield Function(symbol.name, start_address, end_address)
+
+    # If no matching function is found, return None
+    return
 
 
 class BasicBlock:
@@ -290,7 +318,7 @@ def build_cfg(basic_blocks, current, function, discovered, postorder):
             build_cfg(basic_blocks, successor, function, discovered, postorder)
     elif OpCode.RETURN == last_op.opcode:
         pass
-    else:
+    elif current.end_address < function.end_address:
         successor = basic_blocks[current.end_address + 1]
         current.successors.append(successor)
         successor.predecessors.append(current)
@@ -396,6 +424,7 @@ def is_ring_buffer_enabled(tbexeclist, tbexeclist_fault):
     return (tbexeclist_fault_min_pos - 1) > tbexeclist_max_pos
 
 
+@cache
 def affects_condition(bb, target_address, condition_nodes, meminfo, discovered=[]):
     print("affects condition ", hex(bb.start_address), condition_nodes)
     if bb.start_address in discovered:

@@ -15,6 +15,7 @@
 import util
 from pypcode import Context, PcodePrettyPrinter
 from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
+from functools import cache
 import networkx as nx
 
 
@@ -73,6 +74,7 @@ class DataDependencyAnalysis:
         plt.plot()
         plt.show()
 
+    @cache
     def find_dependencies(self, insn_addr):
         nodes = filter(lambda node: node.insn_addr == insn_addr, self.graph.nodes())
         dependencies = set(())
@@ -82,6 +84,7 @@ class DataDependencyAnalysis:
 
         return list(filter(lambda node: node in dependencies, self.graph.nodes))
 
+    @cache
     def find_dependents(self, insn_addr):
         nodes = filter(lambda node: node.insn_addr == insn_addr, self.graph.nodes())
         dependencies = set(())

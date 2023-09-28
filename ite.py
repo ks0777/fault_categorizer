@@ -252,7 +252,11 @@ def check_ite(
                 fault_report.related_constructs[node.insn_addr] = related_construct
 
     if len(fault_report.affected_branches) > 0:
-        if len(set(fault_report.related_constructs.values())) == 1:
+        if (
+            len(set(fault_report.related_constructs.values())) == 1
+            and function.start_address <= fault_report.affected_branches[0]
+            and function.end_address >= fault_report.affected_branches[0]
+        ):
             fault_report.category = (
                 util.FaultCategory.ITE_4
                 if isinstance(
