@@ -212,22 +212,28 @@ def check_ite(
 
     if last_op.opcode == OpCode.CBRANCH:
         related_construct = find_related_construct(constructs, target_address)
-        # Check if the control flow stays inside the construct after skipping the branch
-        if next_instruction_addr in map(
-            lambda bb: bb.start_address,
-            related_construct.then_blocks.union(
-                related_construct.else_blocks
-                if isinstance(related_construct, IfThenElse)
-                else []
-            ),
-        ):
+
+        if isinstance(related_construct, IfThenElse):
+            # Check if the control flow stays inside the construct after skipping the branch
+            if next_instruction_addr in map(
+                lambda bb: bb.start_address,
+                related_construct.then_blocks.union(
+                    related_construct.else_blocks
+                    if isinstance(related_construct, IfThenElse)
+                    else []
+                ),
+            ):
+                return util.FaultReport(
+                    target_address,
+                    util.FaultCategory.ITE_3,
+                    related_constructs={target_address: related_construct},
+                )
+        elif related_construct != None:
             return util.FaultReport(
                 target_address,
-                util.FaultCategory.ITE_2
-                if isinstance(related_construct, IfThen)
-                else util.FaultCategory.ITE_3,
+                util.FaultCategory.ITE_2,
                 related_constructs={target_address: related_construct},
-            )  # We skipped the conditional branch and executed secured code instead of the insecure default
+            )
 
     dependents = ddg.find_dependents(target_address)
 

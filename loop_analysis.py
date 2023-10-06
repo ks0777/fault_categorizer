@@ -118,10 +118,12 @@ class LoopFinder:
                     subg.add_edge(node, succ_node)
         if entry_node is None:
             entry_node = min(loop_body_nodes, key=lambda n: n.start_address)
+            """
             print(
                 "Couldn't find entry point, assuming it's the first by address (%s)",
                 entry_node,
             )
+            """
 
         acyclic_subg = subg.copy()
         for pred_node in subg.predecessors(entry_node):

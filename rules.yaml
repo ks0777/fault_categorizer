@@ -724,5 +724,5 @@
     markdown: "
       # Fault Description
 
-      The analysis was unable to detect how the faulted instruction influences the control flow. 
+      The analysis was unable to detect how the faulted instruction influences the control flow. If the fault affected a store operation that writes to device memory the analysis might be unable to trace the data dependencies from this point on.
     "
