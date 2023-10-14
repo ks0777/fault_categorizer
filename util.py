@@ -416,6 +416,31 @@ def get_predecessors(bb, function=None):
     return _get_predecessors(bb, function, set(()))
 
 
+def _get_successors(bb, function, discovered):
+    if bb.start_address in discovered:
+        return set(())
+    discovered.add(bb.start_address)
+
+    if function != None and (
+        bb.start_address < function.start_address
+        or bb.end_address > function.end_address
+    ):
+        return set(())
+
+    successors = set(
+        filter(lambda pred: pred.start_address not in discovered, bb.successors)
+    )
+
+    for successor in successors:
+        successors = successors.union(_get_successors(successor, function, discovered))
+
+    return successors
+
+
+def get_successors(bb, function=None):
+    return _get_successors(bb, function, set(()))
+
+
 def is_ring_buffer_enabled(tbexeclist, tbexeclist_fault):
     tbexeclist_max_pos = max(tbexeclist["pos"])
     tbexeclist_fault_min_pos = min(tbexeclist_fault["pos"])

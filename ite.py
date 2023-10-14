@@ -60,10 +60,6 @@ def identify_constructs(basic_blocks, function, postorder):
             biggest_branch = all_preds[-1]
             second_biggest_branch = all_preds[-2]
 
-            # If the predecessor branch with the most nodes does not contain the nodes of every other predecessor branch except the smallest one, there is no if-then(-else) construct, perhaps a switch statement.
-            if set().union(*all_preds[1:]) != biggest_branch:
-                continue
-
             # Intersection returns all blocks before the body. The last block is the condition
             pre_body_blocks = second_biggest_branch & biggest_branch
 
@@ -74,22 +70,56 @@ def identify_constructs(basic_blocks, function, postorder):
             ]
 
             # If condition is already part of an IT(E) we identified it cant be part of another one with a smaller scope
-            if condition_blocks[0] in all_condition_blocks:
+            if (
+                condition_blocks[0] in all_condition_blocks
+                or len(condition_blocks[0].successors) < 2
+            ):
                 continue
 
+            body_blocks_1 = util.get_successors(
+                condition_blocks[0].successors[0]
+            ).union([condition_blocks[0].successors[0]])
+            body_blocks_2 = util.get_successors(
+                condition_blocks[0].successors[0]
+            ).union([condition_blocks[0].successors[1]])
+
+            body_blocks_1_unfiltered = body_blocks_1.copy()
+            body_blocks_1 -= body_blocks_2
+            body_blocks_2 -= body_blocks_1_unfiltered
+
+            # Filter out blocks that only contain a jump in order to not confuse optimized IT constructs with ITE
+            for body_blocks in [body_blocks_1, body_blocks_2]:
+                if len(body_blocks) == 1:
+                    bb = next(iter(body_blocks))
+                    if (
+                        len(bb.instruction_ops) == 1
+                        and bb.instruction_ops[bb.start_address][0].opcode
+                        == OpCode.BRANCH
+                    ):
+                        body_blocks.pop()
+                        break
+
             # If the shortest path is a subset of the longest path we do not have an else part
-            if len(second_biggest_branch - biggest_branch) == 0:
-                then_blocks = biggest_branch - pre_body_blocks
+            if len(body_blocks_1) == 0 or len(body_blocks_2) == 0:
+                then_blocks = body_blocks_1 if len(body_blocks_1) > 0 else body_blocks_2
+                then_head = sorted(then_blocks)[0]
                 if len(then_blocks) == 0:
                     continue
-                then_head = sorted(then_blocks)[0]
 
                 # Follow up sequence of blocks that only have a single predecessor and have the body of the construct as a successor.
                 # Needed to make sure conditions consisting of multiple parts that are connected through logical operations are also inluded.
                 head = condition_blocks[0]
-                while len(head.predecessors) == 1 and start_address in map(
-                    lambda bb: bb.start_address, head.predecessors[0].successors
-                ):
+                while len(head.predecessors) == 1:
+                    condition_successors = list(
+                        map(
+                            lambda bb: bb.start_address, head.predecessors[0].successors
+                        )
+                    )
+                    if (
+                        start_address not in condition_successors
+                        and then_head.start_address not in condition_successors
+                    ):
+                        break
                     head = head.predecessors[0]
                     condition_blocks.append(head)
 
@@ -98,8 +128,8 @@ def identify_constructs(basic_blocks, function, postorder):
                 constructs.append(IfThen(condition_blocks, then_blocks))
             else:
                 # then and else might be mixed up but it does not matter for this purpose
-                then_blocks = biggest_branch - pre_body_blocks
-                else_blocks = second_biggest_branch - pre_body_blocks
+                then_blocks = body_blocks_1
+                else_blocks = body_blocks_2
                 then_head = sorted(then_blocks)[0]
                 else_head = sorted(else_blocks)[0]
 
