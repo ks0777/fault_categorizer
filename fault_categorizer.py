@@ -62,10 +62,12 @@ def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
             source = util.decode_file_line(elf.get_dwarf_info(), address)
             if source != (None, None):
                 source = {"filename": source[0].decode(), "line": source[1]}
-                report.affected_branches[i] = {
-                    "address": report.affected_branches[i],
-                    "source": source,
-                }
+            else:
+                source = {"filename": "-", "line": "-"}
+            report.affected_branches[i] = {
+                "address": report.affected_branches[i],
+                "source": source,
+            }
 
         if report.affected_branches:
             fault_detail += "Fault affected branch(es) at: \n"
@@ -134,6 +136,7 @@ def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
                                     }
                                 }
                                 for affected_branch in report.affected_branches
+                                if affected_branch["source"]["filename"] != "-"
                             ]
                             if report.affected_branches != None
                             else []
