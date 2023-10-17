@@ -96,13 +96,9 @@ class DataDependencyAnalysis:
 
     def _analyze_dependencies(self):
         insn_addresses = sorted(self._instructions.keys())
-        visited_tbs = []
 
         index = 0
         for tb_addr in self._tbexeclist["tb"]:
-            if tb_addr in visited_tbs or tb_addr not in insn_addresses:
-                continue
-            visited_tbs.append(tb_addr)
             tb = self._tbinfo.loc[tb_addr]
             insn_start_index = insn_addresses.index(tb_addr)
 
