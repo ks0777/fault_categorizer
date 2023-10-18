@@ -282,6 +282,7 @@
       This will however not secure the code against all cases where a fault is used to wrongfully execute the loop body once.
       In practice such a fault will likely most often be used to skip the entire loop.
       Hence, the additional check for the condition after the loop is probably the best mitigation as it secures the more important case and is reliable.
+      In some cases the fault might also target the initalization of the counter variable. In this case the initialzation needs to be secured with a check that validated the intialization.
 
 
       ## Implementation
@@ -290,6 +291,7 @@
       Alternatively add redundancy to the loop condition (e.g.
       through one of the `FIH_EQ`, `FIH_NOT_EQ`, `FIH_LT`, `FIH_GT`, `FIH_LTE`, `FIH_GTE` macros) and verify that the compiler builds the loop in a way that is secure against skipping branches.
       Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
+      If the counter initialization is affected secure it by initializing the variable through the `FIH_SET` macro.
       "
 
 - id: LI_4
@@ -344,15 +346,13 @@
       Using compiler annotations such as `__builtin_expect` might help to steer the compiler in the right direction however this approach is rather unreliable.
       If necessary secure the update of the loop counter by making it redundant.
       For this to work everything, including loading, calculations, and storing needs to be redundant or checked.
+      The `FIH_INC` macro can be used to securely increment a counter value.
       This could look like this in the source code:\n
       ```\n
-      for (i=0; i<3;) {\n
+      for (volatile int i=0; i<3;) {\n
       \_\_// body\n
       \n
-      \_\_volatile int _i = i + 1;\n
-      \_\_i = i + 1;\n
-      \_\_if (i != _i)\n
-      \_\_\_\__hang();\n
+      \_\_FIH_INC(i);\n
       }\n
       ```
       "
@@ -497,6 +497,26 @@
       \_\_...\n
       ```
 
+      If this error persists even with a redundant condition, the compiler might need to be advised about the likeliness of the condition. The example below shows assembly that could be generated with heavy optimizations if the condition `(x != 1) && (x != 1)` is deemed unlikely by the compiler.
+
+      ```\n
+      \_\_li      a3,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <condition_2>\n
+      else:\n
+      \_\_...\n
+      \_\_j end\n
+      condition_2:\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_beq     a4,a5, <else>\n
+      then:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
+      ```
+
+      Here a single fault on the `bne` instruction is enough to reach the Else-Block of the structure. Since the compiler expects `x` to not equal one, it builds the construct in a way that only needs one comparison for this case.
 
       ## Implementation
 
@@ -592,6 +612,26 @@
       \_\_...\n
       ```
 
+      If this error persists even with a redundant condition, the compiler might need to be advised about the likeliness of the condition. The example below shows assembly that could be generated with heavy optimizations if the condition `(x != 1) && (x != 1)` is deemed unlikely by the compiler.
+
+      ```\n
+      \_\_li      a3,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_bne     a3,a5, <condition_2>\n
+      else:\n
+      \_\_...\n
+      \_\_j end\n
+      condition_2:\n
+      \_\_li      a4,1\n
+      \_\_lw      a5,12(sp)\n
+      \_\_beq     a4,a5, <else>\n
+      then:\n
+      \_\_...\n
+      end:\n
+      \_\_...\n
+      ```
+
+      Here a single fault on the `bne` instruction is enough to reach the Else-Block of the structure. Since the compiler expects `x` to not equal one, it builds the construct in a way that only needs one comparison for this case.
 
       ## Implementation
 
@@ -620,7 +660,7 @@
       ## Mitigation
 
       Hardening the code against this fault is hard since it is not a weakness in the source code unless it is written in Assembly.
-      Slightly restructuring the function might solve this problem, however this is neither guranteed to work nor is it very reliable.
+      Slightly restructuring the function might solve this problem, however this is neither guaranteed to work nor is it very reliable.
       Since this problem is likely the result of an optimization, turning off the optimization, or choosing a less aggresive profile might be the best solution.
 
 
