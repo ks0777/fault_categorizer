@@ -96,10 +96,15 @@ class DataDependencyAnalysis:
 
     def _analyze_dependencies(self):
         insn_addresses = sorted(self._instructions.keys())
+        graph_nodes = []
 
         index = 0
         for tb_addr in self._tbexeclist["tb"]:
             tb = self._tbinfo.loc[tb_addr]
+
+            if tb_addr not in insn_addresses:
+                # For some reason the function associated with this instrcution was not disassembled
+                continue
             insn_start_index = insn_addresses.index(tb_addr)
 
             for insn_addr in insn_addresses[insn_start_index:]:
@@ -122,6 +127,7 @@ class DataDependencyAnalysis:
                         node = Node(output, insn_addr, index)
                         if node not in self.graph:
                             nodes.append(node)
+                            graph_nodes.append(node)
                             self.graph.add_node(node)
 
                     inputs = list(
@@ -142,25 +148,16 @@ class DataDependencyAnalysis:
                         inputs.extend(reads.values)
 
                     for _input in inputs:
-                        write_op_nodes = list(
-                            filter(
-                                lambda _node: _node.location == _input
-                                and _node not in nodes,
-                                self.graph.nodes(),
-                            )
-                        )
-                        if len(write_op_nodes) > 0:
-                            for node in nodes:
-                                self.graph.add_edge(
-                                    write_op_nodes[-1],
-                                    next(
-                                        filter(
-                                            lambda _node: node == _node,
-                                            self.graph.nodes(),
-                                        )
-                                    ),
-                                )
-
+                        write_op_node = None
+                        for i in range(len(graph_nodes)-1, 0, -1):
+                            if graph_nodes[i].location == _input and graph_nodes[i] not in nodes:
+                                write_op_node = graph_nodes[i]
+                                for node in nodes:
+                                    self.graph.add_edge(
+                                        write_op_node,
+                                        node
+                                    )
+                                break
                     index += 1
 
         # self.plot_graph()

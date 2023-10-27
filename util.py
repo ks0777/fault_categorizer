@@ -13,7 +13,8 @@
 # limitations under the License.
 
 from pypcode import Context
-from pypcode.pypcode_native import OpCode, BadDataError
+from pypcode.pypcode_native import OpCode, BadDataError, UnimplError
+from elftools.elf.constants import SH_FLAGS
 
 from enum import Enum
 from functools import cache
@@ -78,6 +79,8 @@ class FaultCategoryHandler(jsonpickle.handlers.BaseHandler):
     def restore(self, obj):
         pass
 
+def is_arm(elf):
+    return elf_file.header['e_machine'] == 'EM_ARM'
 
 def load_instruction_ops(elf_file):
     ops = dict()
@@ -87,10 +90,7 @@ def load_instruction_ops(elf_file):
     ctx = Context("RISCV:LE:64:default")
 
     for section in elf_file.iter_sections():
-        if section.name in [
-            ".text",
-            ".init",
-        ]:  # Assuming text and init sections contain executable code
+        if section.header.sh_flags & SH_FLAGS.SHF_EXECINSTR:
             # Get the address range for the section
             start_address = section["sh_addr"]
             end_address = start_address + section["sh_size"]
@@ -98,7 +98,7 @@ def load_instruction_ops(elf_file):
             # Iterate over symbols to find functions within the section
             for symbol in elf_file.get_section_by_name(".symtab").iter_symbols():
                 if symbol["st_info"]["type"] == "STT_FUNC":
-                    symbol_address = symbol["st_value"]
+                    symbol_address = symbol["st_value"] ^ (1 if is_arm() else 0)
                     if start_address <= symbol_address < end_address:
                         # Load the binary data of the function
                         function_data = section.data()[
@@ -108,8 +108,15 @@ def load_instruction_ops(elf_file):
                             + symbol["st_size"]
                         ]
 
+                        if len(function_data) == 0:
+                            continue
+
                         # Translate binary data into pcode operations
-                        tx = ctx.translate(function_data, base_address=symbol_address)
+                        try:
+                            tx = ctx.translate(function_data, base_address=symbol_address)
+                        except BadDataError:
+                            print('Unable to disassemble instructions of function at', hex(symbol_address))
+                            continue
                         current_insn_addr = None
                         for op in tx.ops:
                             # Keep track of instruction markers
@@ -175,7 +182,7 @@ def find_function_by_address(elf, target_address):
     for symbol in symbol_table.iter_symbols():
         # Check if the symbol is a function
         if symbol["st_info"]["type"] == "STT_FUNC":
-            start_address = symbol["st_value"]
+            start_address = symbol["st_value"] ^ (1 if is_arm() else 0)
             end_address = start_address + symbol["st_size"]
 
             # Check if the target address is within the function's scope
@@ -201,7 +208,7 @@ def get_functions(elf):
     for symbol in symbol_table.iter_symbols():
         # Check if the symbol is a function
         if symbol["st_info"]["type"] == "STT_FUNC":
-            start_address = symbol["st_value"]
+            start_address = symbol["st_value"] ^ (1 if is_arm() else 0)
             end_address = start_address + symbol["st_size"]
 
             yield Function(symbol.name, start_address, end_address)
@@ -247,6 +254,8 @@ def find_basic_blocks(instruction_ops, start_address, end_address):
 
     insn_addresses = sorted(instruction_ops.keys())
     split_next_insn = False
+    if start_address not in insn_addresses:
+        return basic_blocks
     for addr in insn_addresses[insn_addresses.index(start_address) :]:
         if addr > end_address:
             break
@@ -544,15 +553,16 @@ def find_affected_branches(
             # Basic block not found. The tbexeclist contains addresses of QEMU's translation blocks. These are blocks of code which are translated by QEMU's tcg.
             # In most cases they are identical to the basic blocks. On some occassions QEMU will however split up basic blocks into multiple translation blocks,
             # which is why we need to look for the next best basic block here in that case.
-            affected_bb = max(
-                list(
-                    filter(
-                        lambda bb_start: bb_start < affected_bb.iloc[0],
-                        basic_blocks.keys(),
-                    )
+            affected_bb = list(
+                filter(
+                    lambda bb: bb.start_address <= affected_bb.iloc[0] and bb.end_address > affected_bb.iloc[0],
+                    basic_blocks.values(),
                 )
             )
-            instruction_ops = basic_blocks[affected_bb].instruction_ops
+            if len(affected_bb) == 0:
+                continue
+            affected_bb = affected_bb[0]
+            instruction_ops = basic_blocks[affected_bb.start_address].instruction_ops
         if instruction_ops[max(instruction_ops)][-1].opcode == OpCode.CBRANCH:
             affected_branches.add(max(instruction_ops))
 

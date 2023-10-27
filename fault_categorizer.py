@@ -244,9 +244,12 @@ def categorize_faults(args):
     postorders = dict()
     functions = list(util.get_functions(elf))
     for function in functions:
-        basic_blocks |= util.find_basic_blocks(
+        _basic_blocks = util.find_basic_blocks(
             instruction_ops, function.start_address, function.end_address
         )
+        if not _basic_blocks:
+            continue
+        basic_blocks |= _basic_blocks
 
         postorders[function.start_address] = []
         util.build_cfg(
