@@ -274,18 +274,18 @@ def check_ite(
         related_constructs=dict(),
     )
 
-    for node in {node.insn_addr: node for node in dependents}.values():
-        if affected_branches != None and node.insn_addr in affected_branches:
-            related_construct = find_related_construct(constructs, node.insn_addr)
-            fault_report.affected_branches.append(node.insn_addr)
-            fault_report.related_constructs[node.insn_addr] = related_construct
+    for insn_addr in dependents:
+        if affected_branches != None and insn_addr in affected_branches:
+            related_construct = find_related_construct(constructs, insn_addr)
+            fault_report.affected_branches.append(insn_addr)
+            fault_report.related_constructs[insn_addr] = related_construct
 
         elif affected_branches == None:
-            ops = instruction_ops[node.insn_addr]
+            ops = instruction_ops[insn_addr]
             if ops[-1].opcode == OpCode.CBRANCH:
-                related_construct = find_related_construct(constructs, node.insn_addr)
-                fault_report.affected_branches.append(node.insn_addr)
-                fault_report.related_constructs[node.insn_addr] = related_construct
+                related_construct = find_related_construct(constructs, insn_addr)
+                fault_report.affected_branches.append(insn_addr)
+                fault_report.related_constructs[insn_addr] = related_construct
 
     if len(fault_report.affected_branches) > 0:
         if (

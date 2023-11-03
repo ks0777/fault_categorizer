@@ -36,13 +36,10 @@ def check_li(basic_blocks, instruction_ops, ddg, affected_branches, target_addre
     if affected_branches == None:
         dependents = ddg.find_dependents(target_address)
         dependent_branch_addresses = list(
-            map(
-                lambda node: node.insn_addr,
-                filter(
-                    lambda node: instruction_ops[node.insn_addr][-1].opcode
-                    == OpCode.CBRANCH,
-                    dependents,
-                ),
+            filter(
+                lambda insn_addr: instruction_ops[insn_addr][-1].opcode
+                == OpCode.CBRANCH,
+                dependents,
             )
         )
 

@@ -6,3 +6,4 @@ networkx==3.1
 tables==3.8.0
 jsonpickle==3.0.2
 pyyaml==6.0.1
+scipy==1.11.3

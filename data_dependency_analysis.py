@@ -16,7 +16,7 @@ import util
 from pypcode import Context, PcodePrettyPrinter
 from pypcode.pypcode_native import OpCode as OpCode, Instruction, Address
 from functools import cache
-import networkx as nx
+import graph_tool.all as gt
 
 
 class Node:
@@ -26,7 +26,6 @@ class Node:
         self.index = index
 
     def __hash__(self):
-        # return hash((self.location << 80) + (self.insn_addr << 16) + self.index)
         return hash(self.location)
 
     def __eq__(self, other):
@@ -49,56 +48,83 @@ class DataDependencyAnalysis:
         self._meminfo = meminfo
         self._instructions = instructions
 
-        self.graph = nx.DiGraph()
+        self.graph = gt.Graph(directed=True)
+        self.graph_reverse = gt.Graph(
+            directed=True
+        )  # another graph which is built in reverse to quickly iterate over predecessors of a node
         self._analyze_dependencies()
 
-    def plot_graph(self):
-        nx.draw(self.graph, with_labels=True)
-        import matplotlib.pyplot as plt
+    def __getstate__(self):
+        state = dict()
+        state["graph"] = self.graph
+        state["graph_reverse"] = self.graph_reverse
+        state["node_map"] = self.node_map
+        state["node_map_rev"] = self.node_map_rev
+        return state
 
-        plt.plot()
-        plt.show()
-
-    def plot_ancestors(self, insn_addr):
-        nodes = filter(lambda node: node.insn_addr == insn_addr, self.graph.nodes())
-
-        ancestor_nodes = set(())
-        for node in nodes:
-            if node in self.graph:
-                ancestor_nodes = ancestor_nodes.union(nx.ancestors(self.graph, node))
-
-        subg = self.graph.subgraph(ancestor_nodes)
-        nx.draw(subg, with_labels=True)
-        import matplotlib.pyplot as plt
-
-        plt.plot()
-        plt.show()
+    def __setstate(self, state):
+        self.graph = state["graph"]
+        self.graph_reverse = state["graph_reverse"]
+        self.node_map = state["node_map"]
+        self.node_map_rev = state["node_map_rev"]
 
     @cache
     def find_dependencies(self, insn_addr):
-        nodes = filter(lambda node: node.insn_addr == insn_addr, self.graph.nodes())
-        dependencies = set(())
-        for node in nodes:
-            if node in self.graph:
-                dependencies = dependencies.union(nx.ancestors(self.graph, node))
+        if insn_addr not in self.node_map:
+            return []
+        dependencies = set()
+        source_nodes = filter(
+            lambda node: node == self.node_map[insn_addr], self.graph_reverse.vertices()
+        )
+        for source_node in source_nodes:
+            for node in gt.bfs_iterator(self.graph_reverse, source_node):
+                dependencies.add(
+                    self.node_map_rev[self.graph.vertex_index[edge.target()]]
+                )
 
-        return list(filter(lambda node: node in dependencies, self.graph.nodes))
+        return list(dependencies)
 
     @cache
     def find_dependents(self, insn_addr):
-        nodes = filter(lambda node: node.insn_addr == insn_addr, self.graph.nodes())
-        dependencies = set(())
-        for node in nodes:
-            if node in self.graph:
-                dependencies = dependencies.union(nx.descendants(self.graph, node))
+        if insn_addr not in self.node_map:
+            return []
+        dependents = set()
+        source_nodes = filter(
+            lambda node: node == self.node_map[insn_addr], self.graph.vertices()
+        )
+        for source_node in source_nodes:
+            for edge in gt.bfs_iterator(self.graph, source_node):
+                dependents.add(
+                    self.node_map_rev[self.graph.vertex_index[edge.target()]]
+                )
 
-        return list(filter(lambda node: node in dependencies, self.graph.nodes))
+        return list(dependents)
 
     def _analyze_dependencies(self):
         insn_addresses = sorted(self._instructions.keys())
-        graph_nodes = []
+
+        # dicts that map vertex ids in graph to tb addresses
+        self.node_map = dict()
+        self.node_map_rev = []
+
+        last_write_nodes = dict()
+
+        writes_df = self._meminfo[self._meminfo["direction"] == 1].groupby(["insaddr"])
+        writes = dict()
+        for name, group in writes_df:
+            writes[name[0]] = []
+            for write in group["address"]:
+                writes[name[0]].append(write)
+
+        reads_df = self._meminfo[self._meminfo["direction"] == 0].groupby(["insaddr"])
+        reads = dict()
+        for name, group in reads_df:
+            reads[name[0]] = []
+            for read in group["address"]:
+                reads[name[0]].append(read)
 
         index = 0
+        graph_size = 0
         for tb_addr in self._tbexeclist["tb"]:
             tb = self._tbinfo.loc[tb_addr]
 
@@ -115,20 +141,19 @@ class DataDependencyAnalysis:
                 for op in ops:
                     outputs = [op.output.offset] if op.output != None else []
                     if op.opcode == OpCode.STORE:
-                        writes = self._meminfo[
-                            (self._meminfo["insaddr"] == insn_addr)
-                            & (self._meminfo["direction"] == 1)
-                        ]["address"]
-                        outputs += list(writes.values)
-                        # print(f'writing to {hex(output)}')
+                        outputs += list(writes.get(insn_addr, []))
 
                     nodes = []
                     for output in outputs:
+                        last_write_nodes[output] = insn_addr
                         node = Node(output, insn_addr, index)
-                        if node not in self.graph:
+                        if node.insn_addr not in self.node_map:
                             nodes.append(node)
-                            graph_nodes.append(node)
-                            self.graph.add_node(node)
+                            self.node_map[node.insn_addr] = graph_size
+                            self.node_map_rev.append(node.insn_addr)
+                            graph_size += 1
+                            self.graph.add_vertex()
+                            self.graph_reverse.add_vertex()
 
                     inputs = list(
                         map(
@@ -140,24 +165,18 @@ class DataDependencyAnalysis:
                     )
 
                     if op.opcode == OpCode.LOAD:
-                        reads = self._meminfo[
-                            (self._meminfo["insaddr"] == insn_addr)
-                            & (self._meminfo["direction"] == 0)
-                        ]["address"]
-                        # print(f'reading from {hex(reads.values[0])}')
-                        inputs.extend(reads.values)
+                        inputs.extend(reads.get(insn_addr, []))
 
                     for _input in inputs:
                         write_op_node = None
-                        for i in range(len(graph_nodes)-1, 0, -1):
-                            if graph_nodes[i].location == _input and graph_nodes[i] not in nodes:
-                                write_op_node = graph_nodes[i]
-                                for node in nodes:
-                                    self.graph.add_edge(
-                                        write_op_node,
-                                        node
-                                    )
-                                break
+                        if _input in last_write_nodes:
+                            for node in nodes:
+                                self.graph.add_edge(
+                                    self.node_map[last_write_nodes[_input]],
+                                    self.node_map[node.insn_addr],
+                                )
+                                self.graph_reverse.add_edge(
+                                    self.node_map[node.insn_addr],
+                                    self.node_map[last_write_nodes[_input]],
+                                )
                     index += 1
-
-        # self.plot_graph()

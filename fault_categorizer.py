@@ -78,7 +78,7 @@ def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
             dependents = ddg.find_dependents(report.fault_address)
             affects_store_op = False
             for dep in dependents:
-                for op in instruction_ops[dep.insn_addr]:
+                for op in instruction_ops[dep]:
                     if op.opcode == OpCode.STORE:
                         affects_store_op = True
                         break
@@ -193,8 +193,8 @@ def log_results(fault_reports, elf, ddg, instruction_ops, instructions, args):
             dependents = ddg.find_dependents(report.fault_address)
             affects_store_op = False
             for dep in dependents:
-                print(f"\t\t{str(dep)}")
-                for op in instruction_ops[dep.insn_addr]:
+                print(f"\t\t{hex(dep)}")
+                for op in instruction_ops[dep]:
                     if op.opcode == OpCode.STORE:
                         affects_store_op = True
                         break
@@ -249,7 +249,7 @@ def categorize_faults(args):
         )
         if not _basic_blocks:
             continue
-        basic_blocks |= _basic_blocks
+        basic_blocks.update(_basic_blocks)
 
         postorders[function.start_address] = []
         util.build_cfg(

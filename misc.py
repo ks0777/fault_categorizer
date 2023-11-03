@@ -26,10 +26,7 @@ def check_branch(instruction_ops, target_address):
 def check_branch_intervention(report, ddg, instruction_ops, target_address):
     deps = ddg.find_dependents(target_address)
 
-    if (
-        len(set(report.affected_branches) & set(map(lambda node: node.insn_addr, deps)))
-        > 0
-    ):
+    if len(set(report.affected_branches) & set(deps)) > 0:
         ops = instruction_ops[target_address]
         if any(op.opcode == OpCode.LOAD for op in ops):
             return util.FaultReport(
