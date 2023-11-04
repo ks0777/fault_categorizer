@@ -53,6 +53,7 @@ class DataDependencyAnalysis:
             directed=True
         )  # another graph which is built in reverse to quickly iterate over predecessors of a node
         self._analyze_dependencies()
+        import pdb; pdb.set_trace()
 
     def __getstate__(self):
         state = dict()
@@ -77,7 +78,7 @@ class DataDependencyAnalysis:
             lambda node: node == self.node_map[insn_addr], self.graph_reverse.vertices()
         )
         for source_node in source_nodes:
-            for node in gt.bfs_iterator(self.graph_reverse, source_node):
+            for edge in gt.bfs_iterator(self.graph_reverse, source_node):
                 dependencies.add(
                     self.node_map_rev[self.graph.vertex_index[edge.target()]]
                 )
@@ -143,18 +144,6 @@ class DataDependencyAnalysis:
                     if op.opcode == OpCode.STORE:
                         outputs += list(writes.get(insn_addr, []))
 
-                    nodes = []
-                    for output in outputs:
-                        last_write_nodes[output] = insn_addr
-                        node = Node(output, insn_addr, index)
-                        if node.insn_addr not in self.node_map:
-                            nodes.append(node)
-                            self.node_map[node.insn_addr] = graph_size
-                            self.node_map_rev.append(node.insn_addr)
-                            graph_size += 1
-                            self.graph.add_vertex()
-                            self.graph_reverse.add_vertex()
-
                     inputs = list(
                         map(
                             lambda varnode: varnode.offset,
@@ -167,16 +156,33 @@ class DataDependencyAnalysis:
                     if op.opcode == OpCode.LOAD:
                         inputs.extend(reads.get(insn_addr, []))
 
+                    if len(outputs) + len(inputs) == 0:
+                        continue
+
+                    for output in outputs:
+                        if output not in last_write_nodes:
+                            last_write_nodes[output] = []
+                        last_write_nodes[output].append(insn_addr)
+
+                    if insn_addr not in self.node_map:
+                        self.node_map[insn_addr] = graph_size
+                        self.node_map_rev.append(insn_addr)
+                        graph_size += 1
+                        self.graph.add_vertex()
+                        self.graph_reverse.add_vertex()
+
+                    #if insn_addr == 0x11844:
+                        #import pdb; pdb.set_trace()
+
                     for _input in inputs:
-                        write_op_node = None
                         if _input in last_write_nodes:
-                            for node in nodes:
+                            for write_node in last_write_nodes[_input]:
                                 self.graph.add_edge(
-                                    self.node_map[last_write_nodes[_input]],
-                                    self.node_map[node.insn_addr],
+                                    self.node_map[write_node],
+                                    self.node_map[insn_addr],
                                 )
                                 self.graph_reverse.add_edge(
-                                    self.node_map[node.insn_addr],
-                                    self.node_map[last_write_nodes[_input]],
+                                    self.node_map[insn_addr],
+                                    self.node_map[write_node],
                                 )
                     index += 1
